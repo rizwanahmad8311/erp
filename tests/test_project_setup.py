@@ -95,36 +95,10 @@ class TestNoExternalAssets:
         assert not offenders, "External asset references found:\n" + "\n".join(offenders)
 
 
-class TestMoneyHelpers:
-    def test_paisa_round_trip(self):
-        from apps.core.money import to_paisa, to_rupees
-
-        assert to_paisa("123.45") == 12345
-        assert to_paisa(0.1) == 10
-        assert str(to_rupees(12345)) == "123.45"
-
-    def test_half_up_rounding_at_the_boundary(self):
-        from apps.core.money import to_paisa
-
-        assert to_paisa("0.005") == 1  # banker's rounding would give 0
-
-    def test_format_is_display_only(self):
-        from apps.core.money import format_money
-
-        assert format_money(123456789) == "Rs 1,234,567.89"
-        assert format_money(-12345) == "Rs -123.45"
-
-    @pytest.mark.parametrize(
-        ("total", "parts"),
-        [(100, 3), (1, 4), (9999, 7), (-100, 3), (0, 5)],
-    )
-    def test_split_evenly_never_loses_a_paisa(self, total, parts):
-        from apps.core.money import split_evenly
-
-        assert sum(split_evenly(total, parts)) == total
-
-
 class TestFieldTypes:
+    """Behaviour of the fields themselves lives in tests/test_money.py; these
+    only pin the storage types the whole ledger depends on."""
+
     def test_money_field_is_big_integer(self):
         from django.db.models import BigIntegerField
 
@@ -132,12 +106,15 @@ class TestFieldTypes:
 
         assert issubclass(MoneyField, BigIntegerField)
 
-    def test_quantity_field_is_big_integer(self):
-        from django.db.models import BigIntegerField
+    def test_quantity_field_is_a_plain_integer(self):
+        """32-bit: piece counts never approach two billion, and the narrower
+        column makes a paisa value assigned to a quantity fail loudly."""
+        from django.db.models import BigIntegerField, IntegerField
 
         from apps.core.fields import QuantityField
 
-        assert issubclass(QuantityField, BigIntegerField)
+        assert issubclass(QuantityField, IntegerField)
+        assert not issubclass(QuantityField, BigIntegerField)
 
     def test_no_decimal_or_float_fields_declared_anywhere(self):
         """Money must never be a DecimalField or FloatField in the database."""
@@ -186,7 +163,9 @@ class TestAppRegistry:
         apps = settings.INSTALLED_APPS
         assert apps.index("unfold") < apps.index("django.contrib.admin")
 
-    def test_no_business_models_exist_yet(self):
+    def test_no_domain_models_exist_yet(self):
+        """core may hold infrastructure (DocumentSequence); the domain apps hold
+        nothing at all until their models are designed."""
         from django.apps import apps as django_apps
 
         domain_labels = {
@@ -197,7 +176,14 @@ class TestAppRegistry:
             "payments",
             "reports",
             "backup",
-            "core",
         }
         models = [m for m in django_apps.get_models() if m._meta.app_label in domain_labels]
         assert models == [], f"Unexpected models: {models}"
+
+    def test_core_holds_only_infrastructure(self):
+        from django.apps import apps as django_apps
+
+        core_models = {m.__name__ for m in django_apps.get_app_config("core").get_models()}
+        assert core_models == {"DocumentSequence"}, (
+            f"core should hold only the sequence counter, found: {sorted(core_models)}"
+        )

@@ -71,10 +71,14 @@ quote-style = "double"
 # pytest
 # ---------------------------------------------------------------------------
 [tool.pytest.ini_options]
-DJANGO_SETTINGS_MODULE = "config.settings.dev"
 python_files = ["test_*.py", "*_test.py"]
 testpaths = ["tests", "apps"]
-addopts = "--reuse-db --strict-markers -ra"
+# --ds rather than the DJANGO_SETTINGS_MODULE ini key on purpose: an ambient
+# DJANGO_SETTINGS_MODULE in the environment (the dev container exports one)
+# overrides the ini key, which silently runs the suite against settings that do
+# not install tests.testapp. --ds wins over the environment, so the test
+# settings are used no matter where pytest is invoked from.
+addopts = "--ds=config.settings.test --reuse-db --strict-markers -ra"
 markers = [
     "posting: exercises a ledger/stock posting service inside a transaction",
 ]

@@ -15,24 +15,53 @@ unwind. If a requirement seems to need one of these rules broken, stop and ask
 - Every monetary value in the database is a **`BigIntegerField` holding paisa**.
   Use `apps.core.fields.MoneyField`.
 - **Never `FloatField`. Never `DecimalField`. Never a Python `float` in any
-  calculation** that produces a stored value.
+  calculation** that produces a stored value. `to_paisa()` rejects `float`
+  outright — pass a string or a `Decimal`.
 - 1 rupee = 100 paisa. `settings.PAISA_PER_RUPEE` is the only place that number
   appears.
 - `Decimal` is allowed in exactly two places, both at the system boundary:
   parsing operator input (`apps.core.money.to_paisa`) and rendering for display
-  or PDF (`apps.core.money.to_rupees`). It never reaches a model field.
+  or PDF (`to_rupees`, `fmt`). It never reaches a model field.
 - Field names carry the unit: `amount_paisa`, `unit_price_paisa`,
   `discount_paisa`. A field called `amount` is a bug waiting to happen.
-- Allocation and proportional splits use `apps.core.money.split_evenly` so the
-  parts sum back to the original exactly. Never divide and drop the remainder —
-  a lost paisa is an unbalanced ledger.
-- Formatting is display only: `{{ value|money }}` in templates,
-  `format_money()` in Python.
+
+### Rounding — banker's, in exactly one place
+
+- **`apps.core.money.round_paisa()` is the only rounding point in the system.**
+  It uses `ROUND_HALF_EVEN`: an exact half goes to the nearest *even* paisa, so
+  0.5 → 0, 1.5 → 2, 2.5 → 2.
+- Half-up is biased away from zero. On a long run of half-paisa remainders —
+  which is exactly what percentage discounts and per-line tax produce — that
+  bias accumulates in one direction and the day's sales drift against the
+  ledger. Half-even splits the halves both ways and the error cancels.
+- **Never write `round()` or `.quantize()` on a monetary value anywhere else.**
+  `to_paisa`, `Money.__mul__`, `Money.percent` and every service all funnel
+  through `round_paisa`. `tests/test_money.py` fails the build if a second
+  rounding site appears under `apps/`.
+
+### Arithmetic
+
+- Services do money arithmetic with **`apps.core.money.Money`**, an immutable
+  value object wrapping integer paisa. Wrap at the top of the service, unwrap
+  with `.paisa` when writing rows back.
+- `Money + int` raises on purpose — that is the guard that catches
+  "is this paisa or rupees?" bugs.
+- Model fields still store and return plain `int`. `MoneyField` deliberately
+  does not convert to `Money`: a field returning a custom object breaks
+  aggregates, `F()` expressions and `values_list()`.
+- Allocation and proportional splits use `Money.allocate(weights)` or
+  `Money.split(n)`, whose parts sum back to the original **exactly**. Never
+  divide and drop the remainder — a lost paisa is an unbalanced ledger.
+- Formatting is display only: `{{ value|money }}` in templates, `fmt()` in
+  Python, `format_money()` when a currency symbol is wanted inline.
 
 ## 2. Quantity is integer base units. Always.
 
-- Every quantity is a **`BigIntegerField` in base units (pieces)**. Use
+- Every quantity is an **`IntegerField` in base units (pieces)**. Use
   `apps.core.fields.QuantityField`.
+- 32-bit, unlike `MoneyField`. Piece counts for a distribution business stay far
+  below two billion, and the narrower column makes a paisa value accidentally
+  assigned to a quantity field much more likely to fail loudly.
 - **Never fractional.** There is no 2.5 pieces.
 - Packaging is a **UOM conversion on the item**, not a fractional quantity. A
   carton of 12 is `qty_pieces = 12`, with the carton as a display/entry unit
@@ -90,10 +119,39 @@ unwind. If a requirement seems to need one of these rules broken, stop and ask
 - Those are the only two legal transitions. See
   `apps.core.enums.ALLOWED_STATUS_TRANSITIONS`; call `assert_transition()`
   before changing status.
-- **Posted documents are never edited.** To change one: cancel it (which posts
-  reversing entries), then create a new document with `amended_from` pointing at
-  the cancelled one. The audit trail is the chain of `amended_from` links.
-- Never delete a document. Never renumber one.
+- **Posted documents are never edited**, and `DocumentModel.save()` enforces it
+  rather than trusting callers: changing any field on a POSTED or CANCELLED row
+  raises `DocumentImmutable` naming the document code. The only fields a
+  cancellation may write are listed in `DocumentModel.CANCELLATION_FIELDS`.
+- Subclasses implement `post()`, `cancel()` and `amend()`; the base raises
+  `NotImplementedError` for all three. `post()` and `cancel()` must be wrapped
+  in `transaction.atomic()`.
+- **Amending**: a document must be CANCELLED before it can be amended — amending
+  a POSTED document would double-count it, since nothing has been reversed yet.
+  `build_amendment()` clones the header into a new DRAFT with `amended_from`
+  set and `amendment_no` incremented; the subclass copies its own lines on.
+- Amendment codes suffix the **root** code, so a chain reads
+  `SI-2026-000123` → `-1` → `-2`, never `-1-1`. The suffix comes from
+  `root_document()`, not from string-munging the current code — `SI-2026-000123`
+  already ends in digits.
+- **Never renumber a document.** A DRAFT may be deleted (it has written nothing
+  to any ledger and has no reversing entries to lose); a POSTED or CANCELLED
+  document may not, and `delete()` raises `DocumentImmutable` if you try.
+
+### Document codes
+
+- Format `PREFIX-YYYY-NNNNNN`, allocated only by
+  `apps.core.services.get_next_code(prefix, fiscal_year)`.
+- Call it **inside** the same `atomic()` block that saves the document, so a
+  failed save does not burn a number.
+- Gaps in the sequence are normal and are never a reason to renumber.
+- Numbering restarts each fiscal year and is independent per prefix.
+- On SQLite, `select_for_update()` is a no-op — what actually serialises two
+  simultaneous invoices is `transaction_mode: IMMEDIATE` taking the write lock
+  at `BEGIN`. The `select_for_update()` call is kept so the code stays correct
+  on a row-locking backend. Never "optimise" either one away.
+- Never edit `DocumentSequence.last_number` by hand. The admin is read-only for
+  exactly this reason.
 
 ## 6. Reports read the ledger, never document headers.
 
@@ -153,9 +211,9 @@ Therefore:
 erp/
   manage.py            dev entrypoint (defaults to config.settings.dev)
   serve.py             prod entrypoint (waitress)
-  config/settings/     base.py + dev.py + prod.py
+  config/settings/     base.py + dev.py + prod.py + test.py (pytest only)
   apps/
-    core/              base models, MoneyField/QuantityField, enums, money helpers
+    core/              money primitives, base models, document codes, filters
     accounting/        chart of accounts, LedgerEntry (append-only)
     masters/           items, UOM, parties, routes, sellers
     purchasing/        purchase orders, receipts, supplier bills
@@ -167,8 +225,21 @@ erp/
   static/dist/         compiled output — COMMITTED
   templates/
   tests/
+    testapp/           concrete models for testing the abstract bases (pytest only)
   data/                erp.sqlite3 lives here (git-ignored)
 ```
+
+### What apps/core provides
+
+| Module | Contents |
+| ------ | -------- |
+| `money.py` | `to_paisa`, `to_rupees`, `fmt`, `format_money`, `round_paisa`, `Money` |
+| `fields.py` | `MoneyField` (paisa, 64-bit), `QuantityField` (pieces, 32-bit) |
+| `models.py` | `TimeStampedModel`, `AppendOnlyModel`, `DocumentModel`, `DocumentSequence` |
+| `services.py` | `get_next_code`, `peek_next_code` |
+| `enums.py` | `DocumentStatus`, `ALLOWED_STATUS_TRANSITIONS` |
+| `exceptions.py` | `DocumentImmutable`, `IllegalTransition`, `AppendOnlyViolation`, `MoneyError`, `SequenceError` |
+| `templatetags/core_tags.py` | `\|money`, `\|qty`, `\|doc_status` |
 
 ## Conventions
 
@@ -180,8 +251,11 @@ erp/
   `django.contrib.admin.ModelAdmin`.
 - Timestamps are timezone-aware (`USE_TZ = True`); use `django.utils.timezone`,
   never `datetime.now()`.
-- Tests use pytest and model-bakery. Any new posting service needs a test that
-  asserts the ledger balances and that a re-post is rejected.
+- Templates load display filters with `{% load core_tags %}`.
+- Tests use pytest and model-bakery, and run under `config.settings.test`, which
+  installs `tests.testapp` and puts the test database on disk so the threaded
+  concurrency tests exercise real SQLite locking. Any new posting service needs a
+  test that asserts the ledger balances and that a re-post is rejected.
 - Lint with `ruff` (`make lint`, `make fmt`). Line length 100.
 
 ## Commands
@@ -201,7 +275,9 @@ erp/
 
 1. `make lint` and `make test` both pass.
 2. No `DecimalField`, `FloatField`, or fractional quantity was introduced.
-3. No ledger or stock row is updated or deleted anywhere in the diff.
-4. Every new posting path is wrapped in `transaction.atomic()`.
-5. No new external URL in a template, stylesheet, or script.
-6. No new dependency that needs node, a compiler, or a system library.
+3. No rounding outside `money.round_paisa` — no stray `round()` or `.quantize()`.
+4. No ledger or stock row is updated or deleted anywhere in the diff.
+5. Every new posting path is wrapped in `transaction.atomic()`.
+6. Every new document code came from `get_next_code`, never a hand-built string.
+7. No new external URL in a template, stylesheet, or script.
+8. No new dependency that needs node, a compiler, or a system library.
