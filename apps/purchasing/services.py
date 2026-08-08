@@ -6,24 +6,17 @@ actions call these functions; they never build a ledger row themselves.
 
 The rounding rule
 -----------------
-A supplier bills by the carton and the stock ledger stores pieces, and those two
-facts do not divide into each other. The rule this module keeps, everywhere:
+The line arithmetic lives in :mod:`apps.masters.pricing` and is re-exported
+here, because it is not a purchasing rule — sales asks the identical question in
+the other direction. In one sentence:
 
     **The money the supplier billed is exact. The per-piece rate is derived.**
 
-``amount_paisa`` is ``qty_input * rate_input_paisa`` — an integer times an
-integer, so there is nothing to round and nothing is rounded. ``rate_paisa`` is
-``amount_paisa / qty_base`` put through
-:func:`~apps.core.money.round_paisa` once, and it is recorded for the stock card
-rather than multiplied back out.
-
-Ten cartons of twelve at Rs 2,400 is 120 pieces at exactly Rs 200 and the two
-agree. Ten cartons of twenty-four at Rs 2,500 is 240 pieces at 1041.66... paisa
-and **no integer rate multiplies back to Rs 25,000**. When that happens the bill
-is right and the rate is a rounded figure — so the stock receipt is posted at the
-line's *value*, and Inventory is debited that same value. The two ledgers
-therefore agree to the paisa on every line, always, and the difference between
-``qty_base * rate_paisa`` and ``amount_paisa`` never reaches either of them.
+What purchasing adds is the consequence: because ``rate_paisa`` is a rounded
+derivation, the stock receipt is posted at the line's **value**, and Inventory is
+debited that same value. The two ledgers therefore agree to the paisa on every
+line, always, and the difference between ``qty_base * rate_paisa`` and
+``amount_paisa`` never reaches either of them.
 
 Every header total is an exact integer sum of the lines. Nothing rounds at
 header level, so ``header == sum(lines)`` is arithmetic, not a tolerance.
@@ -31,17 +24,20 @@ header level, so ``header == sum(lines)`` is arithmetic, not a tolerance.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from datetime import date
-from decimal import Decimal
 from typing import NamedTuple
 
 from django.db import transaction
 
 from apps.accounting import chart as coa
 from apps.accounting.enums import PartyType
-from apps.accounting.exceptions import UnbalancedEntry
-from apps.accounting.models import Account
+from apps.accounting.posting import (
+    GLLine,
+    accounts_by_code,
+    assert_gl_balances,
+    assert_inventory_matches_stock,
+    drop_zero_lines,
+)
 from apps.accounting.refs import PartyRef
 from apps.accounting.services import (
     post_entries,
@@ -53,204 +49,28 @@ from apps.accounting.services import (
 )
 from apps.accounting.valuation import Position
 from apps.core.enums import DocumentStatus
-from apps.core.money import Money, fmt, round_paisa
+from apps.core.money import Money, fmt
 from apps.core.services import get_next_code
-from apps.masters.enums import Unit
-from apps.masters.services import to_base
+
+# The line arithmetic is masters', not purchasing's: every argument to it is an
+# item or a number, and sales asks the identical question in the other
+# direction. Re-exported below so callers of this module keep working.
+from apps.masters.pricing import (
+    LineAmounts,
+    apply_line_amounts,
+    compute_line,
+    entry_rate_paisa,
+    update_line,
+)
 
 from .enums import PURCHASE_INVOICE_PREFIX, PURCHASE_RETURN_PREFIX
-from .exceptions import InvalidLine, PaymentAllocated
+from .exceptions import PaymentAllocated
 from .models import (
     PurchaseInvoice,
     PurchaseInvoiceLine,
     PurchaseReturn,
     PurchaseReturnLine,
 )
-
-#: Basis points in 100%. A tax rate of 1750 bp is 17.5%.
-BASIS_POINTS_PER_UNIT = 10_000
-
-
-# ===========================================================================
-# Line arithmetic
-# ===========================================================================
-@dataclass(frozen=True, slots=True)
-class LineAmounts:
-    """Everything a purchase line stores, computed from what was typed.
-
-    Immutable, and deliberately not a model instance: this is the arithmetic on
-    its own, so it can be tested without a database, a document or a vendor.
-    """
-
-    qty_base: int
-    rate_paisa: int
-    amount_paisa: int
-    discount_paisa: int
-    tax_paisa: int
-
-    @property
-    def net_paisa(self) -> int:
-        """After discount, before tax. What the goods actually cost."""
-        return self.amount_paisa - self.discount_paisa
-
-    @property
-    def total_paisa(self) -> int:
-        return self.net_paisa + self.tax_paisa
-
-    @property
-    def rate_is_exact(self) -> bool:
-        """Whether ``qty_base * rate_paisa`` lands back on ``amount_paisa``.
-
-        False is normal, not a fault — see the module docstring. The entry
-        screen shows it so nobody reads a stock card and thinks the bill is
-        wrong.
-        """
-        return self.qty_base * self.rate_paisa == self.amount_paisa
-
-    @property
-    def rate_drift_paisa(self) -> int:
-        """How far ``qty_base * rate_paisa`` is from the bill. Never posted."""
-        return self.qty_base * self.rate_paisa - self.amount_paisa
-
-
-def compute_line(
-    item,
-    *,
-    qty_input: int,
-    unit_input: str = Unit.PIECE,
-    rate_input_paisa: int,
-    discount_paisa: int = 0,
-    tax_rate_bp: int | None = None,
-) -> LineAmounts:
-    """Turn "10 cartons at Rs 2,400 each" into the five numbers a line stores.
-
-    ``rate_input_paisa`` is the rate **in the unit that was typed** — per carton
-    when ``unit_input`` is CARTON. That is what a supplier quotes and what is
-    printed on their bill, and it is the only rate the operator ever sees on the
-    entry screen.
-
-    The order of operations is the point:
-
-    1. ``amount_paisa = qty_input * rate_input_paisa`` — exact, and the anchor.
-       Nothing downstream is allowed to change it.
-    2. ``qty_base`` from :func:`apps.masters.services.to_base`, which is the only
-       place the carton size is ever applied.
-    3. ``rate_paisa`` from the amount, rounded **once**. Derived, for the stock
-       card. Where it does not multiply back exactly, the amount is right.
-    4. tax on the discounted amount, rounded **once**.
-
-    Doing it the other way round — rate per piece first, amount from
-    ``qty_base * rate_paisa`` — puts the supplier's bill out by up to half a
-    paisa per piece, which is Rs 1.20 on a 240-piece line that nobody agreed to.
-
-    ``tax_rate_bp`` defaults to the item's own rate. Pass it explicitly only
-    when a bill genuinely charges something else.
-    """
-    qty_input = _as_positive_int(qty_input, "qty_input")
-    rate_input_paisa = _as_non_negative_int(rate_input_paisa, "rate_input_paisa")
-    discount_paisa = _as_non_negative_int(discount_paisa, "discount_paisa")
-
-    # to_base validates the unit and refuses a fraction of a base unit.
-    qty_base = to_base(item, qty_input, unit_input)
-
-    # Two integers. There is nothing here to round, and that is the whole design.
-    amount_paisa = qty_input * rate_input_paisa
-
-    if discount_paisa > amount_paisa:
-        raise InvalidLine(
-            f"Discount of {fmt(discount_paisa)} is more than the line amount of "
-            f"{fmt(amount_paisa)}. A line cannot cost less than nothing."
-        )
-
-    # The one division on the line, through the one rounding point in the system.
-    rate_paisa = round_paisa(Decimal(amount_paisa) / qty_base)
-
-    if tax_rate_bp is None:
-        tax_rate_bp = getattr(item, "tax_rate_bp", 0)
-    tax_rate_bp = _as_non_negative_int(tax_rate_bp, "tax_rate_bp")
-    if tax_rate_bp > BASIS_POINTS_PER_UNIT:
-        raise InvalidLine(f"Tax rate of {tax_rate_bp} basis points is over 100%. 1750 is 17.5%.")
-
-    # Money.percent rounds once, through round_paisa. bp/100 is exact in Decimal.
-    taxable = Money(amount_paisa - discount_paisa)
-    tax_paisa = taxable.percent(Decimal(tax_rate_bp) / 100).paisa
-
-    return LineAmounts(
-        qty_base=qty_base,
-        rate_paisa=rate_paisa,
-        amount_paisa=amount_paisa,
-        discount_paisa=discount_paisa,
-        tax_paisa=tax_paisa,
-    )
-
-
-def entry_rate_paisa(line) -> int:
-    """The rate the operator typed, recovered from a saved line.
-
-    ``amount_paisa`` is ``qty_input * rate_input_paisa``, so this division is
-    always exact — there is no rounding here and there must not be. It is what
-    lets the entry screen re-show a draft line as "10 cartons @ 2,400" rather
-    than as the derived per-piece figure.
-    """
-    if not line.qty_input:
-        return 0
-    quotient, remainder = divmod(line.amount_paisa, line.qty_input)
-    if remainder:  # pragma: no cover - only reachable if amount was written by hand
-        raise InvalidLine(
-            f"Line amount {line.amount_paisa} is not a whole multiple of qty_input "
-            f"{line.qty_input}; it was not produced by compute_line()."
-        )
-    return quotient
-
-
-def apply_line_amounts(line, amounts: LineAmounts):
-    """Copy a :class:`LineAmounts` onto a line instance. Does not save.
-
-    The low-level half of :func:`update_line`. Prefer that one: this writes the
-    *derived* fields only, so on its own it will happily leave ``qty_input``
-    describing one quantity and ``amount_paisa`` describing another.
-    """
-    line.qty_base = amounts.qty_base
-    line.rate_paisa = amounts.rate_paisa
-    line.amount_paisa = amounts.amount_paisa
-    line.discount_paisa = amounts.discount_paisa
-    line.tax_paisa = amounts.tax_paisa
-    return line
-
-
-def update_line(
-    line,
-    *,
-    item,
-    qty_input: int,
-    unit_input: str,
-    rate_input_paisa: int,
-    discount_paisa: int = 0,
-    tax_rate_bp: int | None = None,
-):
-    """Write everything a line holds, from what the operator typed. Does not save.
-
-    **The way to fill in a line.** It sets what was typed *and* what was derived
-    from it in one call, so the two can never describe different quantities.
-    Setting the amounts alone would leave a line reading "10 cartons" and
-    costing what six cartons cost — and since
-    :meth:`~apps.purchasing.models.PurchaseLine.save` recomputes ``qty_base``
-    from ``qty_input``, the quantity that actually posted would be the ten.
-    """
-    line.item = item
-    line.qty_input = qty_input
-    line.unit_input = unit_input
-    return apply_line_amounts(
-        line,
-        compute_line(
-            item,
-            qty_input=qty_input,
-            unit_input=unit_input,
-            rate_input_paisa=rate_input_paisa,
-            discount_paisa=discount_paisa,
-            tax_rate_bp=tax_rate_bp,
-        ),
-    )
 
 
 # ===========================================================================
@@ -294,47 +114,6 @@ def recalculate_totals(document, *, save: bool = True):
 # ===========================================================================
 # The general ledger side
 # ===========================================================================
-class GLLine(NamedTuple):
-    """One side of the posting, ready to render or to post.
-
-    The preview on the entry screen and the rows that are actually written come
-    from the **same** function. A preview that is computed separately is a
-    preview that will eventually lie.
-    """
-
-    account: Account
-    debit_paisa: int
-    credit_paisa: int
-    label: str
-
-    def as_entry(self, party: PartyRef | None = None) -> dict:
-        """The dict shape :func:`apps.accounting.services.post_entries` wants."""
-        entry = {
-            "account": self.account,
-            "debit_paisa": self.debit_paisa,
-            "credit_paisa": self.credit_paisa,
-            "remarks": self.label,
-        }
-        if party is not None:
-            entry["party"] = party
-        return entry
-
-
-def _accounts(*codes: str) -> dict[str, Account]:
-    """Fetch the accounts a posting needs, in one query.
-
-    Raises with the missing codes rather than a bare ``DoesNotExist``: an
-    installation whose chart has been edited is exactly when this fails, and
-    "account 4400 is missing" is the sentence that fixes it.
-    """
-    found = {account.code: account for account in Account.objects.filter(code__in=codes)}
-    missing = [code for code in codes if code not in found]
-    if missing:
-        raise InvalidLine(
-            f"The chart of accounts is missing {', '.join(missing)}. Run "
-            f"`manage.py seed_chart_of_accounts` — it only creates what is absent."
-        )
-    return found
 
 
 def build_invoice_gl(invoice, *, subtotal_paisa=None, discount_paisa=None, tax_paisa=None):
@@ -366,7 +145,9 @@ def build_invoice_gl(invoice, *, subtotal_paisa=None, discount_paisa=None, tax_p
     tax = Money(invoice.tax_paisa if tax_paisa is None else tax_paisa)
     total = subtotal - discount + tax
 
-    account = _accounts(coa.INVENTORY, coa.TAX_PAYABLE, coa.DISCOUNT_RECEIVED, coa.ACCOUNTS_PAYABLE)
+    account = accounts_by_code(
+        coa.INVENTORY, coa.TAX_PAYABLE, coa.DISCOUNT_RECEIVED, coa.ACCOUNTS_PAYABLE
+    )
 
     gl = [GLLine(account[coa.INVENTORY], subtotal.paisa, 0, "Goods received")]
     if tax:
@@ -376,7 +157,7 @@ def build_invoice_gl(invoice, *, subtotal_paisa=None, discount_paisa=None, tax_p
     gl.append(
         GLLine(account[coa.ACCOUNTS_PAYABLE], 0, total.paisa, f"Payable to {invoice.vendor.name}")
     )
-    return [line for line in gl if line.debit_paisa or line.credit_paisa]
+    return drop_zero_lines(gl)
 
 
 def build_return_gl(
@@ -415,7 +196,7 @@ def build_return_gl(
     total = subtotal - discount + tax
     cost = Money(cost_released_paisa)
 
-    account = _accounts(
+    account = accounts_by_code(
         coa.ACCOUNTS_PAYABLE,
         coa.DISCOUNT_RECEIVED,
         coa.INVENTORY,
@@ -447,27 +228,7 @@ def build_return_gl(
             )
         )
 
-    return [line for line in gl if line.debit_paisa or line.credit_paisa]
-
-
-def assert_gl_balances(gl_lines, document) -> Money:
-    """Debits == credits, to the paisa, before anything is written.
-
-    :func:`~apps.accounting.services.post_entries` checks this too and is the
-    real guarantee. This runs first so that a bug in *this* module's arithmetic
-    is reported against the purchase document the operator is looking at, rather
-    than as a generic unbalanced-voucher error a layer down.
-    """
-    debits = sum((Money(line.debit_paisa) for line in gl_lines), Money.zero())
-    credits = sum((Money(line.credit_paisa) for line in gl_lines), Money.zero())
-    if debits != credits:
-        difference = debits - credits
-        raise UnbalancedEntry(
-            f"{type(document).__name__} {document.code} does not balance: debits "
-            f"{debits.paisa} paisa vs credits {credits.paisa} paisa — a difference of "
-            f"{difference.paisa} paisa. Nothing was written."
-        )
-    return debits
+    return drop_zero_lines(gl)
 
 
 # ===========================================================================
@@ -509,7 +270,7 @@ def post_purchase_invoice(invoice: PurchaseInvoice, *, user=None) -> PurchaseInv
 
     gl_lines = build_invoice_gl(invoice)
     assert_gl_balances(gl_lines, invoice)
-    _assert_inventory_matches_stock(gl_lines, movements, invoice)
+    assert_inventory_matches_stock(gl_lines, movements, invoice)
 
     party = PartyRef(PartyType.VENDOR, invoice.vendor_id)
     post_entries(
@@ -602,7 +363,7 @@ def post_purchase_return(document: PurchaseReturn, *, user=None) -> PurchaseRetu
     cost_released = -sum(movement.value_paisa for movement in movements)
     gl_lines = build_return_gl(document, cost_released_paisa=cost_released)
     assert_gl_balances(gl_lines, document)
-    _assert_inventory_matches_stock(gl_lines, movements, document)
+    assert_inventory_matches_stock(gl_lines, movements, document)
 
     party = PartyRef(PartyType.VENDOR, document.vendor_id)
     post_entries(
@@ -806,58 +567,6 @@ def _copy_lines(source, target, line_model) -> None:
             for line in source.lines.select_related("item")
         ]
     )
-
-
-def _assert_inventory_matches_stock(gl_lines, movements, document) -> None:
-    """The two ledgers must agree on what the goods were worth, to the paisa.
-
-    This is the check the whole rounding design exists to pass. The Inventory
-    line in the general ledger and the sum of the stock rows are two independent
-    computations of the same fact; if they ever disagree, inventory value and
-    the balance sheet have quietly parted company and every report after that is
-    wrong by the difference.
-
-    Both sides are signed the same way and no direction argument is needed:
-    stock coming in is a positive movement and a debit, stock going out is a
-    negative movement and a credit.
-    """
-    inventory = sum(
-        (
-            Money(line.debit_paisa) - Money(line.credit_paisa)
-            for line in gl_lines
-            if line.account.code == coa.INVENTORY
-        ),
-        Money.zero(),
-    )
-    stock_value = sum((Money(movement.value_paisa) for movement in movements), Money.zero())
-
-    if inventory != stock_value:
-        raise UnbalancedEntry(
-            f"{type(document).__name__} {document.code}: the general ledger moves Inventory "
-            f"by {inventory.paisa} paisa but the stock ledger moved {stock_value.paisa} "
-            f"paisa. The two must agree exactly. Nothing was written."
-        )
-
-
-def _as_positive_int(value, label: str) -> int:
-    if isinstance(value, bool) or not isinstance(value, int):
-        raise InvalidLine(
-            f"{label} must be a whole number as an int, got {type(value).__name__}: {value!r}"
-        )
-    if value <= 0:
-        raise InvalidLine(f"{label} is {value}; a purchase line moves a positive quantity.")
-    return value
-
-
-def _as_non_negative_int(value, label: str) -> int:
-    if isinstance(value, bool) or not isinstance(value, int):
-        raise InvalidLine(
-            f"{label} must be whole paisa as an int, got {type(value).__name__}: {value!r}. "
-            f"Run operator input through apps.core.money.to_paisa first."
-        )
-    if value < 0:
-        raise InvalidLine(f"{label} is {value}; it cannot be negative.")
-    return value
 
 
 __all__ = [

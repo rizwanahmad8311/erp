@@ -264,15 +264,71 @@ class TestAppRegistry:
         for model in (PurchaseInvoice, PurchaseReturn):
             assert issubclass(model, DocumentModel)
 
+    def test_sales_holds_two_documents_and_their_lines(self):
+        """The same shape as purchasing, mirrored. Nothing else.
+
+        No ``Payment``, no ``Delivery``, no allocation table — those belong to
+        the apps that own them.
+        """
+        from django.apps import apps as django_apps
+
+        sales_models = {m.__name__ for m in django_apps.get_app_config("sales").get_models()}
+        assert sales_models == {
+            "SalesInvoice",
+            "SalesInvoiceLine",
+            "SalesReturn",
+            "SalesReturnLine",
+        }, f"unexpected sales models: {sorted(sales_models)}"
+
+    def test_every_transaction_document_is_a_DocumentModel(self):
+        """Which is what makes DRAFT -> POSTED -> CANCELLED enforced rather than
+        remembered, and what makes a posted document immutable."""
+        from apps.core.models import DocumentModel
+        from apps.purchasing.models import PurchaseInvoice, PurchaseReturn
+        from apps.sales.models import SalesInvoice, SalesReturn
+
+        for model in (PurchaseInvoice, PurchaseReturn, SalesInvoice, SalesReturn):
+            assert issubclass(model, DocumentModel)
+
     def test_no_document_caches_what_it_has_been_paid(self):
         """CLAUDE.md §6. ``paid_paisa`` is a property over the payments, and a
         column would be a number that can disagree with them."""
         from apps.purchasing.models import PurchaseInvoice, PurchaseReturn
+        from apps.sales.models import SalesInvoice, SalesReturn
 
-        for model in (PurchaseInvoice, PurchaseReturn):
+        for model in (PurchaseInvoice, PurchaseReturn, SalesInvoice, SalesReturn):
             columns = {field.name for field in model._meta.get_fields()}
             assert "paid_paisa" not in columns
             assert "outstanding_paisa" not in columns
+
+    def test_cost_of_goods_sold_is_stored_on_the_line_not_derived(self):
+        """The one figure on a document that deliberately *is* a column.
+
+        Everything else derived from the ledger is a property, because the
+        ledger cannot disagree with itself. Cost is different: it is captured
+        from the stock valuation at post time and frozen, because the moving
+        average moves and an immutable document's margin must not.
+        """
+        from apps.sales.models import SalesInvoiceLine, SalesReturnLine
+
+        for model in (SalesInvoiceLine, SalesReturnLine):
+            field = model._meta.get_field("cogs_paisa")
+            assert field.concrete, "cogs_paisa must be a stored column, not a property"
+
+    def test_the_line_arithmetic_has_exactly_one_home(self):
+        """Purchasing and sales must not each own a copy of the rounding rule.
+
+        Two implementations of "what does 10 cartons at Rs 2,400 come to" are
+        two implementations that will disagree, and the one that drifts is the
+        one nobody is looking at.
+        """
+        from apps.masters import pricing
+        from apps.purchasing import services as purchasing
+        from apps.sales import services as sales
+
+        assert purchasing.compute_line is pricing.compute_line
+        assert sales.compute_line is pricing.compute_line
+        assert purchasing.update_line is sales.update_line
 
     def test_no_other_domain_models_exist_yet(self):
         """core may hold infrastructure (DocumentSequence); the remaining domain
@@ -280,7 +336,6 @@ class TestAppRegistry:
         from django.apps import apps as django_apps
 
         domain_labels = {
-            "sales",
             "payments",
             "reports",
             "backup",

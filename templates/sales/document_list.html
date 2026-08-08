@@ -1,0 +1,76 @@
+{% extends "base.html" %}
+{% load core_tags %}
+
+{% block title %}{{ kind.title }}s{% endblock %}
+
+{% block content %}
+  <div class="mb-4 flex flex-wrap items-baseline justify-between gap-2">
+    <h1 class="text-xl font-semibold">{{ kind.title }}s</h1>
+    <a href="{% url 'sales:create' slug=kind.slug %}"
+       class="rounded bg-brand-700 px-3 py-2 text-sm font-semibold text-white">
+      New {{ kind.title|lower }}
+    </a>
+  </div>
+
+  <form method="get" class="no-print mb-4 flex flex-wrap gap-2">
+    <input type="search" name="q" value="{{ query }}" autofocus
+           placeholder="Code, client, or phone"
+           class="rounded border border-gray-300 px-2 py-1.5 text-sm">
+    <select name="status" class="rounded border border-gray-300 px-2 py-1.5 text-sm">
+      <option value="">Any status</option>
+      {% for value, label in statuses %}
+        <option value="{{ value }}" {% if value == status %}selected{% endif %}>{{ label }}</option>
+      {% endfor %}
+    </select>
+    <button type="submit" class="rounded border border-gray-300 px-3 py-1.5 text-sm">Filter</button>
+  </form>
+
+  <table class="w-full border-collapse text-sm">
+    <thead>
+      <tr class="border-b border-gray-300 text-left text-xs uppercase tracking-wide text-gray-600">
+        <th class="py-2 pr-2">Code</th>
+        <th class="py-2 pr-2">Date</th>
+        <th class="py-2 pr-2">{{ kind.party_label }}</th>
+        <th class="py-2 pr-2">Route</th>
+        <th class="py-2 pr-2">Seller</th>
+        <th class="py-2 pr-2 text-right">Subtotal</th>
+        <th class="py-2 pr-2 text-right">Tax</th>
+        <th class="py-2 pr-2 text-right">Total</th>
+        <th class="py-2">Status</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for document in documents %}
+        <tr class="border-b border-gray-100">
+          <td class="py-1.5 pr-2 font-mono">
+            <a href="{% url 'sales:detail' slug=kind.slug pk=document.pk %}"
+               class="text-brand-700 underline">{{ document.code }}</a>
+          </td>
+          <td class="py-1.5 pr-2">{{ document.posting_date|date:"d M Y" }}</td>
+          <td class="py-1.5 pr-2">
+            {{ document.client.name }}
+            <span class="font-mono text-xs text-gray-500">{{ document.client.code }}</span>
+          </td>
+          <td class="py-1.5 pr-2">{{ document.route.code|default:"—" }}</td>
+          <td class="py-1.5 pr-2">{{ document.seller.name|default:"—" }}</td>
+          <td class="amount py-1.5 pr-2">{{ document.subtotal_paisa|money }}</td>
+          <td class="amount py-1.5 pr-2">{{ document.tax_paisa|money }}</td>
+          <td class="amount py-1.5 pr-2 font-medium">{{ document.total_paisa|money }}</td>
+          <td class="py-1.5">{{ document.status|doc_status }}</td>
+        </tr>
+      {% empty %}
+        <tr>
+          <td colspan="9" class="py-6 text-center text-sm text-gray-500">
+            Nothing here yet.
+          </td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  <p class="mt-4 text-xs text-gray-500">
+    Totals shown are the documents' own figures, for scanning. Every receivable
+    and every sales report is aggregated from the ledger, never from this table
+    (CLAUDE.md §6).
+  </p>
+{% endblock %}

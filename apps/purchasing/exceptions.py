@@ -12,6 +12,11 @@ that wants to catch "any broken invariant" can do so with one ``except``.
 
 from apps.core.exceptions import CoreError
 
+# Raised by apps.masters.pricing.compute_line, which purchasing calls for every
+# line. Re-exported so `from apps.purchasing.exceptions import InvalidLine`
+# keeps working and callers do not have to know where the arithmetic moved to.
+from apps.masters.exceptions import InvalidLine  # noqa: F401
+
 
 class PurchasingError(CoreError):
     """Base class for every invariant violation raised by apps.purchasing."""
@@ -44,12 +49,3 @@ class PaymentAllocated(PurchasingError):
     def __init__(self, message: str, *, payments=()):
         self.payments = list(payments)
         super().__init__(message)
-
-
-class InvalidLine(PurchasingError):
-    """Raised when a line cannot be turned into a quantity and an amount.
-
-    A quantity of zero, a negative rate, a unit the item is not sold in, a
-    discount larger than the line. All of them are arithmetic that cannot
-    produce a posting, and all of them are caught before anything is written.
-    """

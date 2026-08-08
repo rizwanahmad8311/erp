@@ -56,3 +56,17 @@ class DuplicatePrimarySeller(MastersError):
     "The route's seller" has to be one person — a commission report cannot split
     a route between two of them and a delivery sheet cannot be headed by both.
     """
+
+
+class InvalidLine(MastersError):
+    """Raised when a document line cannot be turned into a quantity and an amount.
+
+    A quantity of zero or less, a negative rate, a discount larger than the
+    line, a tax rate over 100%. All of them are arithmetic that cannot produce a
+    posting, and all of them are caught before anything is written.
+
+    Lives here rather than in a transaction app because
+    :func:`apps.masters.pricing.compute_line` lives here: purchasing and sales
+    both raise it, and an exception defined twice is an exception that only half
+    the ``except`` clauses catch.
+    """

@@ -1,0 +1,23 @@
+{% comment %}
+  The tab order, written on the screen rather than in a manual nobody has.
+
+  The list comes from apps.sales.views.TAB_ORDER, so what is documented and what
+  is implemented are the same tuple. Every step here is reachable with Tab, the
+  arrow keys and Enter — the whole flow is completable without a mouse, which is
+  the point of this screen.
+{% endcomment %}
+
+<details class="no-print mb-3 rounded border border-gray-200 bg-gray-50 text-sm" open>
+  <summary class="cursor-pointer px-3 py-1.5 text-xs font-semibold uppercase tracking-wide text-gray-600">
+    Keyboard
+  </summary>
+  <ol class="flex flex-wrap gap-x-6 gap-y-1 px-3 pb-2">
+    {% for step, field, hint in tab_order %}
+      <li class="flex items-baseline gap-1.5">
+        <span class="rounded bg-gray-200 px-1.5 text-xs font-mono">{{ step }}</span>
+        <span class="font-medium">{{ field }}</span>
+        <span class="text-xs text-gray-500">{{ hint }}</span>
+      </li>
+    {% endfor %}
+  </ol>
+</details>

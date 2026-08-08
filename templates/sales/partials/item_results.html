@@ -1,0 +1,43 @@
+{% comment %}
+  Item autocomplete hits, matched on code or name by the server.
+
+  Each row carries what is on hand, because "is there any left" is the next
+  question and making the operator pick the item to find out is a wasted
+  keystroke on a screen used a thousand times a day.
+
+  Picking a row swaps in a whole new entry row (views.item_pick) with the unit,
+  the rate and the stock already decided — and with data-autofocus on the
+  quantity box, which is what moves the caret to Qty on Enter.
+
+  data-result is what entry-grid.js walks with the arrow keys. It reads
+  positions in this list and clicks one; it never reads a number off it.
+{% endcomment %}
+
+{% if items %}
+  <ul>
+    {% for hit in items %}
+      <li>
+        <button type="button"
+                data-result
+                data-active="{% if forloop.first %}true{% else %}false{% endif %}"
+                class="flex w-full items-baseline justify-between gap-3 px-2 py-1.5 text-left text-sm hover:bg-brand-50 {% if forloop.first %}bg-brand-50{% endif %}"
+                hx-get="{% url 'sales:item-pick' slug=kind.slug pk=document.pk item_pk=hit.item.pk %}"
+                hx-target="#entry-row"
+                hx-swap="outerHTML">
+          <span>
+            <span class="font-mono text-xs text-gray-500">{{ hit.item.code }}</span>
+            {{ hit.item.name }}
+            {% if hit.item.allows_carton %}
+              <span class="text-xs text-gray-400">({{ hit.item.carton_size }}/ctn)</span>
+            {% endif %}
+          </span>
+          <span class="whitespace-nowrap text-xs {% if hit.available_base <= 0 %}text-cancelled{% else %}text-gray-500{% endif %}">
+            {{ hit.available_display }}
+          </span>
+        </button>
+      </li>
+    {% endfor %}
+  </ul>
+{% elif q %}
+  <p class="px-2 py-1.5 text-sm text-gray-500">No item matches “{{ q }}”.</p>
+{% endif %}

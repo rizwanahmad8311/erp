@@ -1,0 +1,123 @@
+{% load core_tags %}
+
+{% comment %}
+  The whole entry surface: saved lines, the row being typed, and the posting
+  strip. Returned as one HTMX swap by every line endpoint, so the totals, the
+  credit position and the lines are always the same age.
+
+  Every figure below was computed by apps.sales.services on the server.
+{% endcomment %}
+
+<div id="grid" hx-target="#grid" hx-swap="outerHTML">
+
+  {# ---------------------------------------------------------------- lines #}
+  <table class="w-full border-collapse text-sm">
+    <thead>
+      <tr class="border-b border-gray-300 text-left text-xs uppercase tracking-wide text-gray-600">
+        <th class="py-2 pr-2">Item</th>
+        <th class="py-2 pr-2 text-right">Qty</th>
+        <th class="py-2 pr-2">Unit</th>
+        <th class="py-2 pr-2 text-right">Rate</th>
+        <th class="py-2 pr-2 text-right">Base qty</th>
+        <th class="py-2 pr-2 text-right">In stock</th>
+        <th class="py-2 pr-2 text-right">Discount</th>
+        <th class="py-2 pr-2 text-right">Tax</th>
+        <th class="py-2 pr-2 text-right">Amount</th>
+        <th class="py-2 w-8"></th>
+      </tr>
+    </thead>
+
+    <tbody>
+      {% for line in lines %}
+        <tr class="border-b border-gray-100">
+          <td class="py-1.5 pr-2">
+            <span class="font-mono text-xs text-gray-500">{{ line.item.code }}</span>
+            {{ line.item.name }}
+          </td>
+          <td class="amount py-1.5 pr-2">{{ line.qty_input|qty }}</td>
+          <td class="py-1.5 pr-2 text-xs uppercase">{{ line.get_unit_input_display }}</td>
+          <td class="amount py-1.5 pr-2">{{ line.entry_rate_paisa|money }}</td>
+          <td class="amount py-1.5 pr-2 text-gray-600">
+            {{ line.qty_display }}
+            {% if not line.rate_is_exact %}
+              <span class="cursor-help text-amber-600"
+                    title="The per-base-unit rate is rounded: it does not multiply back to the line amount. The amount is what was billed and what posts.">*</span>
+            {% endif %}
+          </td>
+          {% comment %}
+            Read from the stock ledger on every render — there is no
+            stock_on_hand column anywhere and there must not be (CLAUDE.md §6).
+          {% endcomment %}
+          <td class="amount py-1.5 pr-2 {% if line.is_short %}font-semibold text-cancelled{% else %}text-gray-600{% endif %}">
+            {{ line.available_display }}
+            {% if line.is_short %}
+              <span title="This line is for more than is on hand. Posting will be refused unless the stock arrives first.">!</span>
+            {% endif %}
+          </td>
+          <td class="amount py-1.5 pr-2">{{ line.discount_paisa|money }}</td>
+          <td class="amount py-1.5 pr-2">{{ line.tax_paisa|money }}</td>
+          <td class="amount py-1.5 pr-2 font-medium">{{ line.amount_paisa|money }}</td>
+          <td class="py-1.5 text-right">
+            {% if document.is_editable %}
+              <button type="button"
+                      class="text-cancelled hover:underline"
+                      title="Remove this line"
+                      hx-post="{% url 'sales:line-delete' slug=kind.slug pk=document.pk line_pk=line.pk %}"
+                      hx-headers='{"X-CSRFToken": "{{ csrf_token }}"}'>&times;</button>
+            {% endif %}
+          </td>
+        </tr>
+      {% empty %}
+        <tr>
+          <td colspan="10" class="py-6 text-center text-sm text-gray-500">
+            No lines yet. Start typing an item code or name below.
+          </td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  {# ------------------------------------------------------------ entry row #}
+  {% if document.is_editable %}
+    <form class="no-print mt-3 rounded border border-gray-300 bg-gray-50 p-3"
+          hx-post="{% url 'sales:line-add' slug=kind.slug pk=document.pk %}"
+          hx-headers='{"X-CSRFToken": "{{ csrf_token }}"}'>
+      {% csrf_token %}
+
+      {% if line_form.non_field_errors %}
+        <p class="mb-2 rounded border border-cancelled/40 bg-cancelled/10 px-2 py-1 text-sm text-cancelled">
+          {{ line_form.non_field_errors|join:" " }}
+        </p>
+      {% endif %}
+
+      {% include "sales/partials/entry_row.html" %}
+
+      {% comment %}
+        What the row comes to, recomputed by the server on every change. The
+        browser is never told the numbers, only the finished HTML.
+      {% endcomment %}
+      <div id="line-preview"
+           class="mt-2 min-h-6 text-sm text-gray-600"
+           hx-post="{% url 'sales:line-preview' slug=kind.slug pk=document.pk %}"
+           hx-trigger="change from:closest form, keyup changed delay:400ms from:closest form"
+           hx-include="closest form"
+           hx-target="this"
+           hx-swap="innerHTML"
+           hx-headers='{"X-CSRFToken": "{{ csrf_token }}"}'>
+      </div>
+
+      <div class="mt-2 flex items-center gap-3">
+        <button type="submit" tabindex="60"
+                class="rounded bg-brand-700 px-3 py-1.5 text-sm font-medium text-white">
+          Add line <span class="opacity-70">(Enter)</span>
+        </button>
+        <span class="text-xs text-gray-500">
+          Rate is per the unit shown — per carton when the unit is CTN.
+        </span>
+      </div>
+    </form>
+  {% endif %}
+
+  {# ------------------------------------------------------- posting strip #}
+  {% include "sales/partials/posting_strip.html" %}
+</div>

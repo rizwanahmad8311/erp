@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+{% load static core_tags %}
+
+{% comment %}
+  The sales entry screen — the one somebody sits at all day.
+
+  Everything money-shaped on this page was computed in Python and arrived as
+  HTML. The JavaScript here moves focus and highlights rows; it never touches a
+  number. See apps/sales/views.py and static/src/js/entry-grid.js.
+
+  htmx and entry-grid.js are both served from static/dist; there is no CDN
+  anywhere in this project, because the production PC has no internet
+  (CLAUDE.md §7).
+{% endcomment %}
+
+{% block title %}{{ document.code }} — {{ kind.title }}{% endblock %}
+
+{% block extra_js %}
+  <script src="{% static 'js/htmx-2.0.4.min.js' %}"></script>
+  <script src="{% static 'js/entry-grid.js' %}"></script>
+{% endblock %}
+
+{% block content %}
+  <div class="mb-3 flex flex-wrap items-baseline justify-between gap-2">
+    <div>
+      <h1 class="text-xl font-semibold">
+        {{ kind.title }} <span class="font-mono">{{ document.code }}</span>
+      </h1>
+      <p class="text-sm text-gray-600">
+        {{ document.client.name }}
+        <span class="font-mono text-xs">({{ document.client.code }})</span>
+        {% if document.client.phone %}&middot; {{ document.client.phone }}{% endif %}
+        &middot; {{ document.warehouse.name }}
+        &middot; {{ document.posting_date|date:"d M Y" }}
+        {% if document.route %}&middot; {{ document.route.code }}{% endif %}
+        {% if document.seller %}&middot; booked by {{ document.seller.name }}{% endif %}
+        {% if document.due_date %}&middot; due {{ document.due_date|date:"d M Y" }}{% endif %}
+        {% if document.against_invoice_id %}
+          &middot; against <span class="font-mono">{{ document.against_invoice.code }}</span>
+        {% endif %}
+      </p>
+    </div>
+    <div class="flex items-center gap-3">
+      {{ document.status|doc_status }}
+      <a href="{% url 'sales:list' slug=kind.slug %}"
+         class="text-sm text-brand-700 underline">All {{ kind.title|lower }}s</a>
+    </div>
+  </div>
+
+  {% if document.is_editable %}
+    {% include "sales/partials/keyboard_help.html" %}
+  {% endif %}
+
+  {% include "sales/partials/grid.html" %}
+{% endblock %}

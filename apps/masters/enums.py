@@ -14,6 +14,12 @@ values sort alphabetically, which is not the order a week happens in, so
 
 from django.db import models
 
+#: 100% expressed in basis points. A tax rate is stored as an integer number of
+#: basis points for the same reason money is stored as integer paisa: 17.5% is
+#: not exactly representable as a float, and a rate that drifts in the fourth
+#: decimal place puts every invoice a paisa out.
+BASIS_POINTS_PER_UNIT = 10_000
+
 
 class Unit(models.TextChoices):
     """The units a quantity may be entered or displayed in.
