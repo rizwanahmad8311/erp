@@ -39,14 +39,20 @@ MAX_PDF_ROWS = 2000
 _EMPHASIS_BACKGROUND = {"heading": BAND, "subtotal": BAND, "total": BAND}
 
 
-def report_pdf(report, result, criteria, *, paper: str | None = None) -> bytes:
+def report_pdf(report, result, criteria, *, paper: str | None = None, columns=None) -> bytes:
     """One registered report as a PDF. Returns the bytes.
 
     ``criteria`` is only read for the header block — the period, the account,
     the route — so that a page handed over on its own says what it was run for.
     Every figure on it was computed before this function was called.
+
+    ``columns`` is what this reader may be shown, from
+    :meth:`apps.reports.registry.Report.columns_for`. A PDF is a file that gets
+    emailed, so a cost column the screen masked and the PDF drew would be the
+    same leak one layer further away.
     """
     paper = paper or ("a4-landscape" if report.landscape else "a4")
+    columns = report.columns if columns is None else tuple(columns)
 
     pdf = PDFDocument(
         title=f"{report.title} — {result.subtitle or criteria.period_label}",
@@ -66,7 +72,7 @@ def report_pdf(report, result, criteria, *, paper: str | None = None) -> bytes:
     dropped = len(result.rows) - len(rows)
 
     if rows or result.totals:
-        story.append(_table(report, rows, result.totals, available_width=width))
+        story.append(_table(columns, rows, result.totals, available_width=width))
     else:
         story.append(Paragraph("Nothing on the ledger matched this report.", style["small"]))
 
@@ -113,7 +119,7 @@ def _meta(report, result, criteria) -> list[tuple[str, str]]:
     return meta
 
 
-def _table(report, rows, totals, *, available_width: float) -> Table:
+def _table(columns, rows, totals, *, available_width: float) -> Table:
     """The report's grid, with the totals line welded onto the bottom of it.
 
     The totals are a row of the same table rather than a block beside it, which
@@ -121,14 +127,14 @@ def _table(report, rows, totals, *, available_width: float) -> Table:
     two pages — a totals block that floated free of its columns would be a
     column of figures with a number under the wrong one.
     """
-    spec = [(column.label, column.width, column.align) for column in report.columns]
+    spec = [(column.label, column.width, column.align) for column in columns]
 
     body = []
     emphasis_rows = []
     alarm_cells = []
     for index, row in enumerate(rows):
         cells = []
-        for column_index, column in enumerate(report.columns):
+        for column_index, column in enumerate(columns):
             text = display(column, row.get(column.key))
             if row.is_cancelled and text:
                 # Struck through rather than dropped: a cancelled document is
@@ -153,7 +159,7 @@ def _table(report, rows, totals, *, available_width: float) -> Table:
                     else "",
                     styles()["amount" if column.is_numeric else "cell"],
                 )
-                for column in report.columns
+                for column in columns
             ]
         )
 

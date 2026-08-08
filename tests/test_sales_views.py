@@ -21,7 +21,6 @@ from pathlib import Path
 
 import pytest
 from django.conf import settings
-from django.contrib.auth.models import Permission
 from django.urls import reverse
 
 from apps.accounting.models import LedgerEntry, StockEntry
@@ -32,7 +31,7 @@ from apps.masters.models import Client, Item, Route, Seller, Vendor
 from apps.purchasing import services as purchasing
 from apps.sales import services
 from apps.sales.models import SalesInvoice, SalesInvoiceLine, SalesReturn
-from tests.conftest import grant_cancel
+from tests.conftest import grant, grant_lifecycle, join_group
 
 pytestmark = pytest.mark.django_db
 
@@ -48,8 +47,17 @@ CANCEL_REASON = "Keyed twice by mistake"
 
 @pytest.fixture
 def operator(django_user_model, db):
+    """Somebody who works this screen for a living.
+
+    In the **Operator** group, so this file tests the real access an operator
+    has rather than a hand-built set that could drift from it — plus the
+    lifecycle permissions the group deliberately withholds, because these tests
+    drive the cancel and amend screens too. What the group does *not* give, and
+    these tests rely on not having, is ``sales.override_credit_limit``.
+    """
     user = django_user_model.objects.create_user(username="counter", password="x", is_staff=True)
-    return grant_cancel(user, SalesInvoice, SalesReturn)
+    join_group(user, "Operator")
+    return grant_lifecycle(user, SalesInvoice, SalesReturn)
 
 
 @pytest.fixture
@@ -565,11 +573,10 @@ class TestCreditLimitOnScreen:
         supervisor = django_user_model.objects.create_user(
             username="supervisor", password="x", is_staff=True
         )
-        supervisor.user_permissions.add(
-            Permission.objects.get(
-                codename="override_credit_limit", content_type__app_label="sales"
-            )
-        )
+        # An operator who *also* holds the override — which is the real shape of
+        # the person who gets called over to the counter.
+        join_group(supervisor, "Operator")
+        grant(supervisor, "sales.override_credit_limit")
         client.force_login(django_user_model.objects.get(pk=supervisor.pk))
 
         body = client.get(url("detail", over_limit)).content.decode()
@@ -586,11 +593,10 @@ class TestCreditLimitOnScreen:
         supervisor = django_user_model.objects.create_user(
             username="supervisor", password="x", is_staff=True
         )
-        supervisor.user_permissions.add(
-            Permission.objects.get(
-                codename="override_credit_limit", content_type__app_label="sales"
-            )
-        )
+        # An operator who *also* holds the override — which is the real shape of
+        # the person who gets called over to the counter.
+        join_group(supervisor, "Operator")
+        grant(supervisor, "sales.override_credit_limit")
         client.force_login(django_user_model.objects.get(pk=supervisor.pk))
 
         client.post(url("post", over_limit), {"override_credit_limit": "1"})

@@ -55,6 +55,9 @@ INSTALLED_APPS = [
     # Local apps. Ledger-bearing apps depend on core + accounting, so they are
     # listed after them.
     "apps.core",
+    # Who may do what. Listed after core (it uses TimeStampedModel) and before
+    # everything that checks a permission, which is all of them.
+    "apps.accounts",
     "apps.accounting",
     "apps.masters",
     "apps.purchasing",
@@ -80,6 +83,11 @@ MIDDLEWARE = [
     # request in the first place. Without it a master edited through a screen
     # records what changed and not who changed it.
     "simple_history.middleware.HistoryRequestMiddleware",
+    # A login created by an administrator has a password that administrator
+    # knows, so "who posted this invoice" has two possible answers until it is
+    # changed. This redirects every page to the password screen until it is.
+    # After AuthenticationMiddleware, for the same reason as the line above.
+    "apps.accounts.middleware.ForcePasswordChangeMiddleware",
 ]
 
 ROOT_URLCONF = "config.urls"
@@ -178,9 +186,19 @@ MEDIA_ROOT = BASE_DIR / "media"
 # read.
 
 
-def _staff(request) -> bool:
-    """Sidebar entries are for people who can open the admin at all."""
-    return request.user.is_active and request.user.is_staff
+def _may(*permissions, any_of=False):
+    """A sidebar ``permission`` callable behind the real permission.
+
+    Imported lazily inside the function body because settings are read before
+    the app registry is ready, and ``apps.accounts.access`` imports Django auth.
+    """
+
+    def check(request) -> bool:
+        from apps.accounts.access import can_staff
+
+        return can_staff(*permissions, any_of=any_of)(request)
+
+    return check
 
 
 UNFOLD = {
@@ -200,43 +218,43 @@ UNFOLD = {
                         "title": "Items",
                         "icon": "inventory_2",
                         "link": reverse_lazy("admin:masters_item_changelist"),
-                        "permission": _staff,
+                        "permission": _may("masters.view_item"),
                     },
                     {
                         "title": "Item categories",
                         "icon": "category",
                         "link": reverse_lazy("admin:masters_itemcategory_changelist"),
-                        "permission": _staff,
+                        "permission": _may("masters.view_itemcategory"),
                     },
                     {
                         "title": "Clients",
                         "icon": "storefront",
                         "link": reverse_lazy("admin:masters_client_changelist"),
-                        "permission": _staff,
+                        "permission": _may("masters.view_client"),
                     },
                     {
                         "title": "Vendors",
                         "icon": "local_shipping",
                         "link": reverse_lazy("admin:masters_vendor_changelist"),
-                        "permission": _staff,
+                        "permission": _may("masters.view_vendor"),
                     },
                     {
                         "title": "Routes",
                         "icon": "route",
                         "link": reverse_lazy("admin:masters_route_changelist"),
-                        "permission": _staff,
+                        "permission": _may("masters.view_route"),
                     },
                     {
                         "title": "Sellers",
                         "icon": "badge",
                         "link": reverse_lazy("admin:masters_seller_changelist"),
-                        "permission": _staff,
+                        "permission": _may("masters.view_seller"),
                     },
                     {
                         "title": "Route sellers",
                         "icon": "hub",
                         "link": reverse_lazy("admin:masters_routeseller_changelist"),
-                        "permission": _staff,
+                        "permission": _may("masters.view_routeseller"),
                     },
                 ],
             },
@@ -251,31 +269,31 @@ UNFOLD = {
                         "title": "Sales invoices",
                         "icon": "point_of_sale",
                         "link": reverse_lazy("sales:list", kwargs={"slug": "invoices"}),
-                        "permission": _staff,
+                        "permission": _may("sales.view_salesinvoice"),
                     },
                     {
                         "title": "Credit notes",
                         "icon": "assignment_returned",
                         "link": reverse_lazy("sales:list", kwargs={"slug": "returns"}),
-                        "permission": _staff,
+                        "permission": _may("sales.view_salesreturn"),
                     },
                     {
                         "title": "Purchase invoices",
                         "icon": "receipt",
                         "link": reverse_lazy("purchasing:list", kwargs={"slug": "invoices"}),
-                        "permission": _staff,
+                        "permission": _may("purchasing.view_purchaseinvoice"),
                     },
                     {
                         "title": "Purchase returns",
                         "icon": "assignment_return",
                         "link": reverse_lazy("purchasing:list", kwargs={"slug": "returns"}),
-                        "permission": _staff,
+                        "permission": _may("purchasing.view_purchasereturn"),
                     },
                     {
                         "title": "Receipts & payments",
                         "icon": "payments",
                         "link": reverse_lazy("payments:list"),
-                        "permission": _staff,
+                        "permission": _may("payments.view_payment"),
                     },
                 ],
             },
@@ -289,13 +307,13 @@ UNFOLD = {
                         "title": "Recovery workspace",
                         "icon": "request_quote",
                         "link": reverse_lazy("payments:recovery"),
-                        "permission": _staff,
+                        "permission": _may("payments.view_payment"),
                     },
                     {
                         "title": "Cheques in hand",
                         "icon": "account_balance",
                         "link": reverse_lazy("payments:cheques"),
-                        "permission": _staff,
+                        "permission": _may("payments.view_chequeevent"),
                     },
                 ],
             },
@@ -307,25 +325,25 @@ UNFOLD = {
                         "title": "Chart of accounts",
                         "icon": "account_tree",
                         "link": reverse_lazy("admin:accounting_account_changelist"),
-                        "permission": _staff,
+                        "permission": _may("accounting.view_account"),
                     },
                     {
                         "title": "Ledger entries",
                         "icon": "receipt_long",
                         "link": reverse_lazy("admin:accounting_ledgerentry_changelist"),
-                        "permission": _staff,
+                        "permission": _may("accounting.view_ledgerentry"),
                     },
                     {
                         "title": "Stock entries",
                         "icon": "inventory",
                         "link": reverse_lazy("admin:accounting_stockentry_changelist"),
-                        "permission": _staff,
+                        "permission": _may("accounting.view_stockentry"),
                     },
                     {
                         "title": "Warehouses",
                         "icon": "warehouse",
                         "link": reverse_lazy("admin:accounting_warehouse_changelist"),
-                        "permission": _staff,
+                        "permission": _may("accounting.view_warehouse"),
                     },
                 ],
             },
@@ -345,31 +363,31 @@ UNFOLD = {
                         "title": "All reports",
                         "icon": "lab_profile",
                         "link": reverse_lazy("reports:index"),
-                        "permission": _staff,
+                        "permission": _may("reports.view_reports"),
                     },
                     {
                         "title": "Trial balance",
                         "icon": "balance",
                         "link": reverse_lazy("reports:report", kwargs={"slug": "trial-balance"}),
-                        "permission": _staff,
+                        "permission": _may("reports.view_reports_financial"),
                     },
                     {
                         "title": "Day book",
                         "icon": "today",
                         "link": reverse_lazy("reports:report", kwargs={"slug": "day-book"}),
-                        "permission": _staff,
+                        "permission": _may("reports.view_reports"),
                     },
                     {
                         "title": "Route day sheet",
                         "icon": "local_shipping",
                         "link": reverse_lazy("reports:report", kwargs={"slug": "route-day-sheet"}),
-                        "permission": _staff,
+                        "permission": _may("reports.view_reports"),
                     },
                     {
                         "title": "Stock balance",
                         "icon": "inventory",
                         "link": reverse_lazy("reports:report", kwargs={"slug": "stock-balance"}),
-                        "permission": _staff,
+                        "permission": _may("reports.view_reports"),
                     },
                 ],
             },
@@ -381,25 +399,25 @@ UNFOLD = {
                         "title": "Company profile",
                         "icon": "domain",
                         "link": reverse_lazy("admin:reports_companyprofile_changelist"),
-                        "permission": _staff,
+                        "permission": _may("reports.change_companyprofile"),
                     },
                     {
                         "title": "Document sequences",
                         "icon": "tag",
                         "link": reverse_lazy("admin:core_documentsequence_changelist"),
-                        "permission": _staff,
+                        "permission": _may("core.view_documentsequence"),
                     },
                     {
                         "title": "Users",
                         "icon": "person",
                         "link": reverse_lazy("admin:auth_user_changelist"),
-                        "permission": lambda request: request.user.is_superuser,
+                        "permission": _may("accounts.manage_users"),
                     },
                     {
                         "title": "Groups",
                         "icon": "group",
                         "link": reverse_lazy("admin:auth_group_changelist"),
-                        "permission": lambda request: request.user.is_superuser,
+                        "permission": _may("auth.view_group"),
                     },
                 ],
             },

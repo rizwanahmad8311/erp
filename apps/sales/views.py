@@ -36,6 +36,8 @@ from django.urls import reverse
 from django.utils import timezone
 from django.views.decorators.http import require_GET, require_POST
 
+from apps.accounts.access import model_permission, require
+from apps.accounts.scoping import scope_clients, scope_queryset, scoped_get_object_or_404
 from apps.core.enums import DocumentStatus
 from apps.core.exceptions import CoreError
 from apps.core.views import cancel_view
@@ -88,6 +90,25 @@ class DocumentKind:
     #: Does this document take stock out (an invoice) or put it back (a note)?
     issues_stock: bool
 
+    # -- who may do what to it -------------------------------------------
+    # Derived from the model, never typed: these views serve two document types
+    # off one set of URLs, and a hard-coded permission string here would guard
+    # one of them with the other's.
+    def permission(self, action: str) -> str:
+        return model_permission(self.model, action)
+
+    @property
+    def view_permission(self) -> str:
+        return self.permission("view")
+
+    def assert_may(self, request, action: str) -> None:
+        """Refuse this request unless it holds ``<app>.<action>_<model>``."""
+        require(request.user, self.permission(action), doing=f"{self.title}s")
+
+    def assert_may_use(self, request, permission: str, *, doing: str) -> None:
+        """Refuse this request unless it holds a named permission."""
+        require(request.user, permission, doing=doing)
+
 
 INVOICE = DocumentKind(
     slug="invoices",
@@ -127,20 +148,29 @@ def _kind(slug: str) -> DocumentKind:
         raise Http404(f"No sales document type {slug!r}.") from None
 
 
-def _get_document(kind: DocumentKind, pk: int):
-    return get_object_or_404(
-        kind.model.objects.select_related("client", "warehouse", "route", "seller"), pk=pk
+def _get_document(request, kind: DocumentKind, pk: int):
+    """One document, or a 404 — including for a document on somebody else's beat.
+
+    Scoped rather than merely filtered out of the list: hiding a bill from a
+    booker's screen and then serving it to anybody who types its id is not
+    access control. A row outside the scope is a 404 rather than a 403 on
+    purpose — see :mod:`apps.accounts.scoping`.
+    """
+    return scoped_get_object_or_404(
+        kind.model.objects.select_related("client", "warehouse", "route", "seller"),
+        request.user,
+        pk=pk,
     )
 
 
-def _editable(kind: DocumentKind, pk: int):
+def _editable(request, kind: DocumentKind, pk: int):
     """A document that may still be changed, or a 404-shaped refusal.
 
     A POSTED document's lines are frozen at the model layer too, but a screen
     that lets you type into them and then explodes on save is a screen that
     loses somebody's work.
     """
-    document = _get_document(kind, pk)
+    document = _get_document(request, kind, pk)
     if not document.is_editable:
         raise Http404(f"{document.code} is {document.status} and can no longer be edited.")
     return document
@@ -222,7 +252,14 @@ def _grid_response(request, kind: DocumentKind, document, *, line_form=None, sta
 @require_GET
 def document_list(request, slug: str):
     kind = _kind(slug)
-    documents = kind.model.objects.select_related("client", "route", "seller", "warehouse")
+    kind.assert_may(request, "view")
+    # Scoped at the view, never in the manager: the posting services and every
+    # report must keep seeing everything (CLAUDE.md §6), so a screen that is
+    # limited says so here rather than hiding it in a default queryset.
+    documents = scope_queryset(
+        kind.model.objects.select_related("client", "route", "seller", "warehouse"),
+        request.user,
+    )
 
     status = request.GET.get("status") or ""
     if status in DocumentStatus.values:
@@ -262,6 +299,7 @@ def document_create(request, slug: str):
     number out of the sequence (CLAUDE.md §5).
     """
     kind = _kind(slug)
+    kind.assert_may(request, "add")
     if request.method == "POST":
         form = kind.form_class(request.POST)
         if form.is_valid():
@@ -295,7 +333,8 @@ def document_detail(request, slug: str, pk: int):
     transaction never does I/O, and this route only reads.
     """
     kind = _kind(slug)
-    document = _get_document(kind, pk)
+    kind.assert_may(request, "view")
+    document = _get_document(request, kind, pk)
 
     if wants_pdf(request):
         return pdf_response(
@@ -322,7 +361,7 @@ def client_search(request):
     clients = Client.objects.none()
     if query:
         clients = (
-            Client.objects.filter(is_active=True)
+            scope_clients(Client.objects.filter(is_active=True), request.user)
             .filter(Q(code__icontains=query) | Q(name__icontains=query) | Q(phone__icontains=query))
             .select_related("route", "seller")
             .order_by("name")[:SEARCH_LIMIT]
@@ -340,7 +379,8 @@ def item_search(request, slug: str, pk: int):
     keystroke on a screen that is used a thousand times a day.
     """
     kind = _kind(slug)
-    document = _get_document(kind, pk)
+    kind.assert_may(request, "change")
+    document = _get_document(request, kind, pk)
     query = (request.GET.get("q") or "").strip()
 
     items = []
@@ -385,7 +425,8 @@ def item_pick(request, slug: str, pk: int, item_pk: int):
     makes Enter on the item list land the caret on Qty.
     """
     kind = _kind(slug)
-    document = _editable(kind, pk)
+    kind.assert_may(request, "change")
+    document = _editable(request, kind, pk)
     item = get_object_or_404(Item, pk=item_pk, is_active=True)
 
     unit = Unit.CARTON if item.allows_carton else Unit.PIECE
@@ -424,7 +465,8 @@ def item_pick(request, slug: str, pk: int, item_pk: int):
 def line_add(request, slug: str, pk: int):
     """Add a line and hand back the whole grid, totals and credit position included."""
     kind = _kind(slug)
-    document = _editable(kind, pk)
+    kind.assert_may(request, "change")
+    document = _editable(request, kind, pk)
     form = LineEntryForm(request.POST)
 
     if not form.is_valid():
@@ -451,7 +493,8 @@ def line_add(request, slug: str, pk: int):
 @require_POST
 def line_delete(request, slug: str, pk: int, line_pk: int):
     kind = _kind(slug)
-    document = _editable(kind, pk)
+    kind.assert_may(request, "change")
+    document = _editable(request, kind, pk)
     get_object_or_404(kind.line_model, pk=line_pk, document=document).delete()
     return _grid_response(request, kind, document)
 
@@ -466,7 +509,8 @@ def line_preview(request, slug: str, pk: int):
     committing the line, without the browser ever doing arithmetic on money.
     """
     kind = _kind(slug)
-    document = _editable(kind, pk)
+    kind.assert_may(request, "change")
+    document = _editable(request, kind, pk)
     form = LineEntryForm(request.POST)
 
     preview = None
@@ -512,7 +556,8 @@ def document_post(request, slug: str, pk: int):
     a permission.
     """
     kind = _kind(slug)
-    document = _get_document(kind, pk)
+    kind.assert_may_use(request, kind.model.post_permission(), doing="Posting a sales document")
+    document = _get_document(request, kind, pk)
     override = bool(request.POST.get("override_credit_limit"))
 
     try:
@@ -537,7 +582,7 @@ def document_cancel(request, slug: str, pk: int):
     get right in only two apps out of three.
     """
     kind = _kind(slug)
-    document = _get_document(kind, pk)
+    document = _get_document(request, kind, pk)
     return cancel_view(
         request,
         document,
@@ -552,7 +597,8 @@ def document_cancel(request, slug: str, pk: int):
 def document_amend(request, slug: str, pk: int):
     """Clone a cancelled document into a fresh draft and open it."""
     kind = _kind(slug)
-    document = _get_document(kind, pk)
+    kind.assert_may_use(request, kind.model.amend_permission(), doing="Amending a sales document")
+    document = _get_document(request, kind, pk)
     try:
         amendment = kind.amend(document, user=request.user)
     except CoreError as exc:
@@ -568,7 +614,8 @@ def document_amend(request, slug: str, pk: int):
 def document_delete(request, slug: str, pk: int):
     """Delete a DRAFT. Anything that has touched a ledger refuses."""
     kind = _kind(slug)
-    document = _get_document(kind, pk)
+    kind.assert_may(request, "delete")
+    document = _get_document(request, kind, pk)
     try:
         document.delete()
     except CoreError as exc:

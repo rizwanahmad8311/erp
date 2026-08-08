@@ -24,7 +24,7 @@ from apps.masters.enums import Unit
 from apps.masters.models import Item, Vendor
 from apps.purchasing import services
 from apps.purchasing.models import PurchaseInvoice, PurchaseInvoiceLine, PurchaseReturn
-from tests.conftest import grant_cancel
+from tests.conftest import grant_lifecycle, join_group
 
 pytestmark = pytest.mark.django_db
 
@@ -38,10 +38,18 @@ CANCEL_REASON = "Supplier sent 8 cartons, not 10"
 
 @pytest.fixture
 def operator(django_user_model, db):
+    """In the **Operator** group, plus the lifecycle permissions it withholds.
+
+    These tests drive the cancel and amend screens, which an Operator cannot
+    reach — see apps/accounts/groups.py. Granting them here keeps this file
+    about the purchase screens rather than about who may open them;
+    tests/test_permissions.py is where that is asserted.
+    """
     user = django_user_model.objects.create_user(
         username="entry", password="entry-pass", is_staff=True
     )
-    return grant_cancel(user, PurchaseInvoice, PurchaseReturn)
+    join_group(user, "Operator")
+    return grant_lifecycle(user, PurchaseInvoice, PurchaseReturn)
 
 
 @pytest.fixture

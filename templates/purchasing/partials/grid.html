@@ -39,6 +39,9 @@
           <td class="amount py-1.5 pr-2">{{ line.entry_rate_paisa|money }}</td>
           <td class="amount py-1.5 pr-2 text-gray-600">{{ line.qty_display }}</td>
           <td class="amount py-1.5 pr-2 text-gray-600">
+            {% comment %} The derived per-piece cost — masked without
+               masters.view_cost_price, the same as everywhere else. {% endcomment %}
+            {% if not perms.masters.view_cost_price %}—{% else %}
             {{ line.rate_paisa|money }}
             {% if not line.rate_is_exact %}
               {% comment %} The per-piece rate is a rounded derivation of the bill. The
@@ -46,6 +49,7 @@
                  stock card and thinks the amount is wrong. {% endcomment %}
               <span class="cursor-help text-amber-600"
                     title="Rounded: this rate x the base quantity does not land back on the line amount. The line amount is what was billed and what posts.">*</span>
+            {% endif %}
             {% endif %}
           </td>
           <td class="amount py-1.5 pr-2">{{ line.discount_paisa|money }}</td>

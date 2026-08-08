@@ -568,6 +568,7 @@ def recovery_rows(
     *,
     as_of: date | None = None,
     route=None,
+    routes=None,
     seller=None,
     query: str = "",
     bucket: str = "",
@@ -584,6 +585,13 @@ def recovery_rows(
     collected a payment: this sheet is a list of shops to chase, and who
     happened to take the last receipt does not decide whose round it is on.
 
+    ``routes`` is the row-level scope, not a filter the operator chose: a list
+    of route ids narrows the sheet to those beats before the ledger is asked
+    anything, so a booker's screen costs the same as anybody else's rather than
+    aggregating the whole customer book and throwing most of it away. An empty
+    list means **no shops**, which is what a scoped user with no routes must
+    see. See :mod:`apps.accounts.scoping`.
+
     Query count is fixed and does not grow with the number of clients: one for
     the ledger, one for the allocations, one per due-date-bearing document type,
     and one for the clients (which carries the last-payment and bounced-cheque
@@ -595,6 +603,9 @@ def recovery_rows(
     narrowed = False
     if route is not None:
         clients = clients.filter(route=route)
+        narrowed = True
+    if routes is not None:
+        clients = clients.filter(route_id__in=routes)
         narrowed = True
     if seller is not None:
         clients = clients.filter(seller=seller)
@@ -787,7 +798,7 @@ class RouteRecovery:
         return f"{whole}.{hundredths:02d}%"
 
 
-def todays_recovery(*, on: date | None = None, route=None) -> list[RouteRecovery]:
+def todays_recovery(*, on: date | None = None, route=None, routes=None) -> list[RouteRecovery]:
     """What each route collected on a day, against what it still has out.
 
     "Collected" counts live receipts only — a cheque that has bounced was never
@@ -805,6 +816,8 @@ def todays_recovery(*, on: date | None = None, route=None) -> list[RouteRecovery
     )
     if route is not None:
         payments = payments.filter(route=route)
+    if routes is not None:
+        payments = payments.filter(route_id__in=routes)
 
     collected: dict[int | None, tuple[int, int]] = {}
     for row in payments.values("route_id").annotate(
@@ -817,7 +830,7 @@ def todays_recovery(*, on: date | None = None, route=None) -> list[RouteRecovery
     # applied to an invoice yet still owes Rs 2,500 less. Clamped at zero so a
     # shop in credit does not quietly cancel out a neighbour's debt.
     outstanding: dict[int | None, tuple[int, int]] = {}
-    for row in recovery_rows(as_of=on, route=route):
+    for row in recovery_rows(as_of=on, route=route, routes=routes):
         route_id = row.client.route_id
         total, count = outstanding.get(route_id, (0, 0))
         outstanding[route_id] = (total + max(row.outstanding_paisa, 0), count + 1)

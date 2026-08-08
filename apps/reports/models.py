@@ -222,3 +222,41 @@ class CompanyProfile(TimeStampedModel):
             # No filesystem behind the storage backend — nothing local to draw.
             return None
         return path if path.is_file() else None
+
+
+class ReportAccess(models.Model):
+    """A permission holder for the report catalogue. **No table, no rows.**
+
+    The reports are not a model — a Trial Balance is an aggregation over
+    :class:`~apps.accounting.models.LedgerEntry` with no row of its own
+    (CLAUDE.md §6) — but "may this person open the reports section" and "may
+    they see what the business earned" are two real questions, and Django hangs
+    a permission on a model or nowhere.
+
+    ``managed = False`` so ``migrate`` creates no table;
+    ``default_permissions = ()`` so the four Django would add do not appear,
+    because ``add_reportaccess`` would mean nothing and somebody would grant it
+    anyway. The ``post_migrate`` hook still creates the two below, which is the
+    whole purpose of this class.
+
+    The split is deliberate. A stock balance is an operational question a
+    storeman may need; what the owner earned this quarter is not. Which reports
+    sit behind which is declared per report — see
+    :attr:`apps.reports.registry.Report.permission`.
+    """
+
+    class Meta:
+        managed = False
+        default_permissions = ()
+        verbose_name = "report access"
+        verbose_name_plural = "report access"
+        permissions = [
+            ("view_reports", "Can open the reports section"),
+            (
+                "view_reports_financial",
+                "Can open the financial statements: Profit & Loss, Balance Sheet, Trial Balance",
+            ),
+        ]
+
+    def __str__(self) -> str:  # pragma: no cover - never instantiated
+        return "Report access"

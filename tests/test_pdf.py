@@ -44,7 +44,7 @@ from apps.reports.pdf import (
 )
 from apps.sales import services as sales
 from apps.sales.models import SalesInvoiceLine, SalesReturnLine
-from tests.conftest import grant_cancel
+from tests.conftest import join_group
 
 pytestmark = pytest.mark.django_db
 
@@ -670,11 +670,14 @@ class TestCompanyProfile:
 # ===========================================================================
 @pytest.fixture
 def staff_client(client, django_user_model, db):
-    from apps.payments.models import Payment
-    from apps.sales.models import SalesInvoice, SalesReturn
+    """An accountant, who can open every screen these two paths print from.
 
+    The group rather than a hand-built set: these tests are about what reaches
+    paper, and who may reach the screen is asserted in
+    ``tests/test_permissions.py``.
+    """
     user = django_user_model.objects.create_user(username="counter", password="x", is_staff=True)
-    grant_cancel(user, SalesInvoice, SalesReturn, Payment)
+    join_group(user, "Accountant")
     client.force_login(user)
     return client
 

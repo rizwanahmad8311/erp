@@ -29,11 +29,11 @@ from apps.masters.models import Client, Item, Route, Seller, Vendor
 from apps.payments import services
 from apps.payments.enums import ChequeStatus, PaymentDirection, PaymentMode
 from apps.payments.forms import field_name
-from apps.payments.models import ChequeEvent, Payment, PaymentAllocation
+from apps.payments.models import Payment, PaymentAllocation
 from apps.purchasing import services as purchasing
 from apps.sales import services as sales
 from apps.sales.models import SalesInvoiceLine
-from tests.conftest import grant_cancel
+from tests.conftest import join_group
 
 pytestmark = pytest.mark.django_db
 
@@ -50,8 +50,14 @@ CANCEL_REASON = "Receipt entered against the wrong shop"
 
 @pytest.fixture
 def operator(django_user_model, db):
+    """The **Accountant**, who is who actually lives on the recovery workspace.
+
+    The group already carries every payments permission these screens check, so
+    this file tests the access the office really has rather than a hand-built
+    set that could drift from it.
+    """
     user = django_user_model.objects.create_user(username="counter", password="x", is_staff=True)
-    return grant_cancel(user, Payment, ChequeEvent)
+    return join_group(user, "Accountant")
 
 
 @pytest.fixture

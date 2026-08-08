@@ -51,6 +51,7 @@ from apps.purchasing.models import PurchaseInvoice, PurchaseInvoiceLine, Purchas
 from apps.purchasing.models import PurchaseReturnLine as PRLine
 from apps.sales import services as sales
 from apps.sales.models import SalesInvoice, SalesInvoiceLine, SalesReturn, SalesReturnLine
+from tests.conftest import join_group
 
 pytestmark = pytest.mark.django_db
 
@@ -816,8 +817,16 @@ class TestCancelledDocumentsAreVisibleButNotCounted:
         self, stocked, user, client, django_user_model
     ):
         purchasing.cancel_purchase_invoice(stocked, user=user, reason=REASON)
+        # A Viewer: read-only, and that is the point — a cancelled document is
+        # never hidden from a list screen (CLAUDE.md §5), including from
+        # somebody whose whole access is looking at it.
         client.force_login(
-            django_user_model.objects.create_user(username="viewer", password="x", is_staff=True)
+            join_group(
+                django_user_model.objects.create_user(
+                    username="viewer", password="x", is_staff=True
+                ),
+                "Viewer",
+            )
         )
 
         body = client.get("/purchasing/invoices/").content.decode()
@@ -826,8 +835,16 @@ class TestCancelledDocumentsAreVisibleButNotCounted:
     def test_the_detail_screen_carries_the_watermark(
         self, stocked, user, client, django_user_model
     ):
+        # A Viewer: read-only, and that is the point — a cancelled document is
+        # never hidden from a list screen (CLAUDE.md §5), including from
+        # somebody whose whole access is looking at it.
         client.force_login(
-            django_user_model.objects.create_user(username="viewer", password="x", is_staff=True)
+            join_group(
+                django_user_model.objects.create_user(
+                    username="viewer", password="x", is_staff=True
+                ),
+                "Viewer",
+            )
         )
         url = f"/purchasing/invoices/{stocked.pk}/"
 

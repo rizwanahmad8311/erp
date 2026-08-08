@@ -93,6 +93,13 @@ class Column:
     #: credit column and every row touches exactly one of them; a column with
     #: ``0.00`` down half of it is a column nobody can scan.
     blank_zero: bool = False
+    #: This column shows what something **cost** — COGS, margin, a valuation
+    #: rate, a purchase rate. A user without ``masters.view_cost_price`` does
+    #: not get the column at all, in any of the three formats. Dropped rather
+    #: than blanked: a masked column still says a cost exists and roughly where,
+    #: and an empty column in a CSV invites somebody to ask why. See
+    #: :meth:`apps.reports.registry.Report.columns_for`.
+    sensitive: bool = False
 
     def __post_init__(self):
         if self.kind not in KINDS:

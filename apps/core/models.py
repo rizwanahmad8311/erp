@@ -353,6 +353,18 @@ class DocumentModel(TimeStampedModel):
         return self.status == DocumentStatus.POSTED and not self.dependents()
 
     @classmethod
+    def post_permission(cls) -> str:
+        """``"sales.post_salesinvoice"`` — the permission posting wants.
+
+        Separate from ``change_`` on purpose. Writing a bill and committing it
+        to the ledger are different acts with different consequences: a DRAFT
+        has touched nothing, and a POSTED document is immutable and has money
+        behind it (CLAUDE.md §5). An Operator does the first all day; who may do
+        the second is a decision the office makes per person.
+        """
+        return f"{cls._meta.app_label}.post_{cls._meta.model_name}"
+
+    @classmethod
     def cancel_permission(cls) -> str:
         """``"sales.cancel_salesinvoice"`` — the permission the cancel view wants.
 
@@ -364,16 +376,38 @@ class DocumentModel(TimeStampedModel):
         """
         return f"{cls._meta.app_label}.cancel_{cls._meta.model_name}"
 
-    def user_may_cancel(self, user) -> bool:
-        """Whether this user holds the cancel permission for this document type.
+    @classmethod
+    def amend_permission(cls) -> str:
+        """``"sales.amend_salesinvoice"`` — the permission amending wants.
 
-        ``None`` counts as allowed: a caller with no user is a management
-        command, a data migration or a test harness, all of which are already
-        trusted code. A request always has a user.
+        Held with ``cancel_`` in practice, because a document has to be
+        cancelled before it can be amended (CLAUDE.md §5) — but declared
+        separately, because the two are separate questions and a role that may
+        reverse a mistake is not automatically a role that may replace it.
         """
+        return f"{cls._meta.app_label}.amend_{cls._meta.model_name}"
+
+    # ``None`` counts as allowed on all three of these: a caller with no user is
+    # a management command, a data migration or a test harness, all of which are
+    # already trusted code. A request always has a user, so nothing reachable
+    # from a browser gets in this way.
+    def user_may_post(self, user) -> bool:
+        """Whether this user holds the post permission for this document type."""
+        if user is None:
+            return True
+        return user.has_perm(self.post_permission())
+
+    def user_may_cancel(self, user) -> bool:
+        """Whether this user holds the cancel permission for this document type."""
         if user is None:
             return True
         return user.has_perm(self.cancel_permission())
+
+    def user_may_amend(self, user) -> bool:
+        """Whether this user holds the amend permission for this document type."""
+        if user is None:
+            return True
+        return user.has_perm(self.amend_permission())
 
     # ------------------------------------------------------------------
     # The timeline

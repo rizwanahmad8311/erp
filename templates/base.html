@@ -12,7 +12,10 @@
   </head>
   <body class="bg-white text-gray-900 antialiased">
     <header class="no-print border-b border-gray-200">
-      {% block header %}{% endblock %}
+      {% comment %} Modules the signed-in user cannot open are not drawn — see
+         templates/partials/nav.html. A block, so a screen that wants no
+         chrome at all can still say so. {% endcomment %}
+      {% block header %}{% include "partials/nav.html" %}{% endblock %}
     </header>
 
     <main class="mx-auto max-w-7xl px-4 py-6">

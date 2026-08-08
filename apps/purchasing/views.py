@@ -33,6 +33,7 @@ from django.urls import reverse
 from django.utils import timezone
 from django.views.decorators.http import require_GET, require_POST
 
+from apps.accounts.access import model_permission, require
 from apps.core.enums import DocumentStatus
 from apps.core.exceptions import CoreError
 from apps.core.views import cancel_view
@@ -74,6 +75,25 @@ class DocumentKind:
     title: str
     bill_label: str
     party_label: str
+
+    # -- who may do what to it -------------------------------------------
+    # Derived from the model, never typed: these views serve two document types
+    # off one set of URLs, and a hard-coded permission string here would guard
+    # one of them with the other's.
+    def permission(self, action: str) -> str:
+        return model_permission(self.model, action)
+
+    @property
+    def view_permission(self) -> str:
+        return self.permission("view")
+
+    def assert_may(self, request, action: str) -> None:
+        """Refuse this request unless it holds ``<app>.<action>_<model>``."""
+        require(request.user, self.permission(action), doing=f"{self.title}s")
+
+    def assert_may_use(self, request, permission: str, *, doing: str) -> None:
+        """Refuse this request unless it holds a named permission."""
+        require(request.user, permission, doing=doing)
 
 
 INVOICE = DocumentKind(
@@ -201,6 +221,7 @@ def _grid_response(request, kind: DocumentKind, document, *, line_form=None, sta
 @require_GET
 def document_list(request, slug: str):
     kind = _kind(slug)
+    kind.assert_may(request, "view")
     documents = (
         kind.model.objects.select_related("vendor", "warehouse")
         .prefetch_related(Prefetch("lines", queryset=kind.line_model.objects.only("document_id")))
@@ -244,6 +265,7 @@ def document_create(request, slug: str):
     number out of the sequence (CLAUDE.md §5).
     """
     kind = _kind(slug)
+    kind.assert_may(request, "add")
     if request.method == "POST":
         form = kind.form_class(request.POST)
         if form.is_valid():
@@ -274,6 +296,7 @@ def document_detail(request, slug: str, pk: int):
     the PDF is the copy that gets filed against the supplier's own bill.
     """
     kind = _kind(slug)
+    kind.assert_may(request, "view")
     document = _get_document(kind, pk)
 
     if wants_pdf(request):
@@ -299,6 +322,7 @@ def line_add(request, slug: str, pk: int):
     the posting strip, so the two are always the same age.
     """
     kind = _kind(slug)
+    kind.assert_may(request, "change")
     document = _editable(kind, pk)
     form = LineEntryForm(request.POST)
 
@@ -326,6 +350,7 @@ def line_add(request, slug: str, pk: int):
 @require_POST
 def line_delete(request, slug: str, pk: int, line_pk: int):
     kind = _kind(slug)
+    kind.assert_may(request, "change")
     document = _editable(kind, pk)
     get_object_or_404(kind.line_model, pk=line_pk, document=document).delete()
     return _grid_response(request, kind, document)
@@ -341,6 +366,7 @@ def line_preview(request, slug: str, pk: int):
     committing the line, without the browser ever doing arithmetic on money.
     """
     kind = _kind(slug)
+    kind.assert_may(request, "change")
     document = _editable(kind, pk)
     form = LineEntryForm(request.POST)
 
@@ -378,6 +404,7 @@ def line_preview(request, slug: str, pk: int):
 def document_post(request, slug: str, pk: int):
     """Post it. The service does the work, atomically."""
     kind = _kind(slug)
+    kind.assert_may_use(request, kind.model.post_permission(), doing="Posting a purchase document")
     document = _get_document(kind, pk)
     try:
         kind.post(document, user=request.user)
@@ -413,6 +440,9 @@ def document_cancel(request, slug: str, pk: int):
 def document_amend(request, slug: str, pk: int):
     """Clone a cancelled document into a fresh draft and open it."""
     kind = _kind(slug)
+    kind.assert_may_use(
+        request, kind.model.amend_permission(), doing="Amending a purchase document"
+    )
     document = _get_document(kind, pk)
     try:
         amendment = kind.amend(document, user=request.user)
@@ -429,6 +459,7 @@ def document_amend(request, slug: str, pk: int):
 def document_delete(request, slug: str, pk: int):
     """Delete a DRAFT. Anything that has touched a ledger refuses."""
     kind = _kind(slug)
+    kind.assert_may(request, "delete")
     document = _get_document(kind, pk)
     try:
         document.delete()

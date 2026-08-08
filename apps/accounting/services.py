@@ -47,6 +47,7 @@ from django.conf import settings
 from django.db import transaction
 from django.db.models import Sum
 
+from apps.accounts.permissions import OVERRIDE_NEGATIVE_STOCK
 from apps.core.money import Money, fmt
 from apps.masters.models import Item
 
@@ -638,7 +639,13 @@ def post_stock(voucher, lines, posting_date, *, user=None) -> list[StockEntry]:
                 f"it, cancel it (which reverses those entries) and post an amendment."
             )
 
-        allow_negative = getattr(settings, "ALLOW_NEGATIVE_STOCK", False)
+        # Two ways a warehouse may go under: the installation-wide switch, and
+        # a person who holds the permission. ``user=None`` is trusted code — a
+        # management command, a data migration, a test harness — and the same
+        # convention every other permission check in this codebase uses.
+        allow_negative = getattr(settings, "ALLOW_NEGATIVE_STOCK", False) or (
+            user is not None and user.has_perm(OVERRIDE_NEGATIVE_STOCK)
+        )
         positions: dict[tuple[int, int], _RunningPosition] = {}
         rows = []
 

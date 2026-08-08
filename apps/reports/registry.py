@@ -21,6 +21,10 @@ from __future__ import annotations
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 
+from apps.accounts.access import has_access
+from apps.accounts.masking import may_see_cost
+from apps.accounts.permissions import VIEW_REPORTS
+
 from .columns import Column, ReportRow
 
 #: The three headings the index groups reports under, in the order the office
@@ -78,6 +82,12 @@ class Report:
     build: Callable[..., ReportResult]
     filters: tuple[str, ...] = ()
     landscape: bool = False
+    #: The permission that opens this report. Defaults to "may open the reports
+    #: section at all"; the financial statements declare
+    #: :data:`~apps.accounts.permissions.VIEW_REPORTS_FINANCIAL` instead,
+    #: because a stock balance is an operational question and what the owner
+    #: earned is not.
+    permission: str = VIEW_REPORTS
     #: Filters the report cannot run without. The screen asks for them rather
     #: than returning a confident empty table — a General Ledger with no account
     #: chosen is not "no rows", it is a question nobody has answered yet.
@@ -97,6 +107,30 @@ class Report:
 
     def column(self, key: str) -> Column | None:
         return next((column for column in self.columns if column.key == key), None)
+
+    def columns_for(self, user) -> tuple[Column, ...]:
+        """The columns this user may be shown. **The masking seam.**
+
+        Every one of the three formats goes through here — the HTML table, the
+        CSV and the PDF — which is the whole design: masking applied where the
+        columns are *chosen* rather than where they are *drawn* cannot be
+        honoured on the screen and forgotten in the export, which is the usual
+        way a cost price leaks.
+
+        A column the user may not see is **absent**, not blank. See
+        :mod:`apps.accounts.masking`.
+        """
+        if may_see_cost(user):
+            return self.columns
+        return tuple(column for column in self.columns if not column.sensitive)
+
+    @property
+    def has_sensitive_columns(self) -> bool:
+        return any(column.sensitive for column in self.columns)
+
+    def may_be_seen_by(self, user) -> bool:
+        """Whether this report appears on the index and opens when clicked."""
+        return has_access(user, VIEW_REPORTS, self.permission)
 
     def missing_requirements(self, criteria) -> list[str]:
         """Which required filters this run has not been given."""
@@ -124,11 +158,18 @@ def get_report(slug: str) -> Report | None:
     return REPORTS.get(slug)
 
 
-def grouped() -> list[tuple[str, list[Report]]]:
-    """Every report, grouped for the index, groups in :data:`GROUPS` order."""
+def grouped(user=None) -> list[tuple[str, list[Report]]]:
+    """Every report this user may open, grouped for the index.
+
+    Filtered rather than greyed out: an index that lists the Balance Sheet to
+    somebody who cannot open it is an index that tells them what they are
+    missing and then refuses. A group with nothing left in it disappears too.
+    """
     order = {name: index for index, name in enumerate(GROUPS)}
     groups: dict[str, list[Report]] = {}
     for report in REPORTS.values():
+        if user is not None and not report.may_be_seen_by(user):
+            continue
         groups.setdefault(report.group, []).append(report)
     return sorted(groups.items(), key=lambda pair: order.get(pair[0], len(GROUPS)))
 

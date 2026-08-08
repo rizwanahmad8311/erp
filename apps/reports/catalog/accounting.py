@@ -27,6 +27,7 @@ from django.urls import reverse
 from apps.accounting.enums import AccountType, PartyType, account_sign, party_sign
 from apps.accounting.models import Account
 from apps.accounting.services import account_balance, party_balance
+from apps.accounts.permissions import VIEW_REPORTS_FINANCIAL
 from apps.core.money import Money, fmt
 from apps.masters.models import Client, Vendor
 from apps.payments import recovery
@@ -256,6 +257,7 @@ def _build_trial_balance(criteria) -> ReportResult:
 register(
     Report(
         slug="trial-balance",
+        permission=VIEW_REPORTS_FINANCIAL,
         title="Trial Balance",
         group=GROUP,
         description=(
@@ -346,6 +348,7 @@ def _build_profit_and_loss(criteria) -> ReportResult:
 register(
     Report(
         slug="profit-and-loss",
+        permission=VIEW_REPORTS_FINANCIAL,
         title="Profit & Loss",
         group=GROUP,
         description="Income and expenses over a period, and what is left.",
@@ -420,6 +423,7 @@ def _build_balance_sheet(criteria) -> ReportResult:
 register(
     Report(
         slug="balance-sheet",
+        permission=VIEW_REPORTS_FINANCIAL,
         title="Balance Sheet",
         group=GROUP,
         description="What is owned, what is owed and what is left, as at a date.",

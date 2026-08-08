@@ -23,7 +23,6 @@ they pick up the phone.
 from __future__ import annotations
 
 from django.contrib import messages
-from django.contrib.auth.decorators import login_required
 from django.db import transaction
 from django.db.models import Q
 from django.http import Http404
@@ -34,6 +33,13 @@ from django.utils import timezone
 from django.views.decorators.http import require_GET, require_POST
 
 from apps.accounting.enums import PartyType
+from apps.accounts.access import module_required
+from apps.accounts.scoping import (
+    scope_clients,
+    scope_queryset,
+    scoped_get_object_or_404,
+    visible_route_ids,
+)
 from apps.core.enums import DocumentStatus
 from apps.core.exceptions import CoreError
 from apps.core.reporting import include_cancelled_from
@@ -79,8 +85,15 @@ def _workspace_context(request):
     criteria = filters.criteria()
     as_of = criteria["as_of"] or timezone.localdate()
 
-    rows = recovery.recovery_rows(**criteria)
-    day = recovery.todays_recovery(on=as_of, route=criteria["route"])
+    # ``None`` means "every route" and an empty list means "none of them" — see
+    # apps.accounts.scoping.visible_route_ids. Passed into the aggregation
+    # rather than filtered out of its result, so a booker's sheet costs what
+    # anybody else's does instead of totalling the whole customer book and
+    # discarding most of it.
+    routes = visible_route_ids(request.user)
+
+    rows = recovery.recovery_rows(routes=routes, **criteria)
+    day = recovery.todays_recovery(on=as_of, route=criteria["route"], routes=routes)
     collected, outstanding, payment_count = recovery.day_totals(day)
 
     return {
@@ -102,14 +115,14 @@ def _workspace_context(request):
     }
 
 
-@login_required
+@module_required("payments.view_payment")
 @require_GET
 def workspace(request):
     """The screen the accountant lives in."""
     return render(request, "payments/recovery.html", _workspace_context(request))
 
 
-@login_required
+@module_required("payments.view_payment")
 @require_GET
 def workspace_rows(request):
     """Just the sheet, for the filter bar to swap in without a page change."""
@@ -165,17 +178,19 @@ def _on_account_payments(client, as_of):
     return [payment for payment in payments if payment.unallocated_paisa > 0]
 
 
-@login_required
+@module_required("payments.view_payment")
 @require_GET
 def client_row(request, pk: int):
     """The expanded row: this shop's open invoices, and the money on account."""
-    client = get_object_or_404(Client.objects.select_related("route", "seller"), pk=pk)
+    client = scoped_get_object_or_404(
+        Client.objects.select_related("route", "seller"), request.user, pk=pk
+    )
     return TemplateResponse(
         request, "payments/partials/client_row.html", _row_context(request, client)
     )
 
 
-@login_required
+@module_required("payments.add_payment", "payments.post_payment", "payments.add_paymentallocation")
 @require_POST
 def client_receive(request, pk: int):
     """Take money from a shop and apply it, without leaving the sheet.
@@ -186,7 +201,9 @@ def client_receive(request, pk: int):
     rejected allocation would leave money on account that nobody meant to leave
     there.
     """
-    client = get_object_or_404(Client.objects.select_related("route", "seller"), pk=pk)
+    client = scoped_get_object_or_404(
+        Client.objects.select_related("route", "seller"), request.user, pk=pk
+    )
     as_of = _as_of(request)
     row = recovery.client_recovery(client, as_of=as_of)
 
@@ -249,7 +266,7 @@ def _take_money(request, client, receipt_form, allocation_form):
     return payment
 
 
-@login_required
+@module_required("payments.add_paymentallocation")
 @require_POST
 def client_allocate(request, pk: int):
     """Apply money already on account to this shop's open invoices.
@@ -257,7 +274,9 @@ def client_allocate(request, pk: int):
     The other half of the inline action: the shop paid last week, nobody applied
     it, and the accountant is looking at the row that proves it.
     """
-    client = get_object_or_404(Client.objects.select_related("route", "seller"), pk=pk)
+    client = scoped_get_object_or_404(
+        Client.objects.select_related("route", "seller"), request.user, pk=pk
+    )
     as_of = _as_of(request)
     payment = get_object_or_404(
         Payment.objects.live(),
@@ -296,11 +315,14 @@ def client_allocate(request, pk: int):
 # ===========================================================================
 # Payments — list, entry, lifecycle
 # ===========================================================================
-@login_required
+@module_required("payments.view_payment")
 @require_GET
 def payment_list(request):
     """Every receipt and payment, filterable by the four things people ask about."""
-    payments = Payment.objects.with_cheque_status().select_related("route", "collected_by")
+    payments = scope_queryset(
+        Payment.objects.with_cheque_status().select_related("route", "collected_by"),
+        request.user,
+    )
 
     direction = request.GET.get("direction") or ""
     if direction in PaymentDirection.values:
@@ -335,7 +357,7 @@ def payment_list(request):
     )
 
 
-@login_required
+@module_required("payments.view_chequeevent")
 @require_GET
 def cheque_register(request):
     """What is in the drawer, oldest cheque first.
@@ -372,7 +394,7 @@ def cheque_register(request):
     )
 
 
-@login_required
+@module_required("payments.add_payment")
 def payment_create(request):
     """The header, then straight to the payment's own screen.
 
@@ -405,7 +427,7 @@ def payment_create(request):
     return render(request, "payments/document_form.html", {"form": form})
 
 
-@login_required
+@module_required("payments.view_payment")
 @require_GET
 def payment_detail(request, pk: int):
     """One payment — or the receipt for it, with ``?format=pdf``.
@@ -467,7 +489,7 @@ def _current_allocations(payment) -> dict:
     }
 
 
-@login_required
+@module_required("payments.post_payment")
 @require_POST
 def payment_post(request, pk: int):
     payment = _payment(pk)
@@ -480,7 +502,7 @@ def payment_post(request, pk: int):
     return redirect("payments:detail", pk=payment.pk)
 
 
-@login_required
+@module_required("payments.cancel_payment")
 def payment_cancel(request, pk: int):
     """The cancel screen: what would be reversed, then the button.
 
@@ -499,7 +521,7 @@ def payment_cancel(request, pk: int):
     )
 
 
-@login_required
+@module_required("payments.amend_payment")
 @require_POST
 def payment_amend(request, pk: int):
     payment = _payment(pk)
@@ -513,7 +535,7 @@ def payment_amend(request, pk: int):
     return redirect("payments:detail", pk=amendment.pk)
 
 
-@login_required
+@module_required("payments.delete_payment")
 @require_POST
 def payment_delete(request, pk: int):
     """Delete a DRAFT. Anything that has touched the ledger refuses."""
@@ -528,7 +550,7 @@ def payment_delete(request, pk: int):
     return redirect("payments:list")
 
 
-@login_required
+@module_required("payments.add_paymentallocation")
 @require_POST
 def payment_allocate(request, pk: int):
     """Set which bills this payment settles, from its own screen."""
@@ -557,7 +579,7 @@ def payment_allocate(request, pk: int):
     return redirect("payments:detail", pk=payment.pk)
 
 
-@login_required
+@module_required("payments.add_paymentallocation")
 @require_POST
 def payment_auto_allocate(request, pk: int):
     """Spend the remainder on the oldest bills first."""
@@ -595,7 +617,7 @@ def _settle(request, pk: int, settle):
     return payment, event
 
 
-@login_required
+@module_required("payments.post_chequeevent")
 @require_POST
 def cheque_clear(request, pk: int):
     """The bank took it: the money moves from the drawer into Bank."""
@@ -607,7 +629,7 @@ def cheque_clear(request, pk: int):
     return redirect("payments:detail", pk=payment.pk)
 
 
-@login_required
+@module_required("payments.post_chequeevent")
 @require_POST
 def cheque_bounce(request, pk: int):
     """The bank sent it back: the debt returns and the shop is flagged."""
@@ -624,7 +646,7 @@ def cheque_bounce(request, pk: int):
     return redirect("payments:detail", pk=payment.pk)
 
 
-@login_required
+@module_required("payments.cancel_chequeevent")
 def cheque_event_cancel(request, pk: int):
     """Reverse a clearing or a bounce that was recorded in error.
 
@@ -646,7 +668,7 @@ def cheque_event_cancel(request, pk: int):
 # ===========================================================================
 # Autocomplete
 # ===========================================================================
-@login_required
+@module_required("masters.view_client")
 @require_GET
 def client_search(request):
     """Clients matching what has been typed, on **code, name or phone**.
@@ -659,7 +681,7 @@ def client_search(request):
     results = []
     if query:
         clients = (
-            Client.objects.filter(is_active=True)
+            scope_clients(Client.objects.filter(is_active=True), request.user)
             .filter(Q(code__icontains=query) | Q(name__icontains=query) | Q(phone__icontains=query))
             .select_related("route", "seller")
             .order_by("name")[:SEARCH_LIMIT]

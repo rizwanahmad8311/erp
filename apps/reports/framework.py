@@ -35,7 +35,6 @@ holding SQLite's write lock.
 
 from __future__ import annotations
 
-from django.contrib.auth.decorators import login_required
 from django.core.paginator import Paginator
 from django.http import Http404
 from django.shortcuts import render
@@ -43,6 +42,9 @@ from django.urls import reverse
 from django.utils.decorators import method_decorator
 from django.views import View
 from django.views.decorators.http import require_GET
+
+from apps.accounts.access import module_required, require
+from apps.accounts.permissions import VIEW_REPORTS
 
 from .columns import display
 from .criteria import ReportFilterForm
@@ -67,7 +69,7 @@ def _format(request) -> str:
     return value
 
 
-@method_decorator(login_required, name="dispatch")
+@method_decorator(module_required(VIEW_REPORTS), name="dispatch")
 @method_decorator(require_GET, name="dispatch")
 class ReportView(View):
     """Runs one registered report and renders it in the format asked for."""
@@ -79,6 +81,10 @@ class ReportView(View):
         if report is None:
             raise Http404(f"No report is registered under {slug!r}.")
 
+        # The section permission is on the class; this is the report's own. The
+        # financial statements ask for more than a stock balance does.
+        require(request.user, report.permission, doing=f"The {report.title}")
+
         form = ReportFilterForm(report, request.GET)
         criteria = form.criteria()
 
@@ -88,16 +94,23 @@ class ReportView(View):
 
         result = report.build(criteria)
 
+        # One list, all three formats. A cost column this reader may not see is
+        # absent from the screen, the file **and** the PDF, because all three
+        # are built from this and not from ``report.columns`` — see
+        # apps.reports.registry.Report.columns_for.
+        columns = report.columns_for(request.user)
+
         output = _format(request)
         if output == "csv":
             return csv_response(
                 report,
                 result,
                 filename=csv_filename(report.slug, *_filename_parts(report, criteria)),
+                columns=columns,
             )
         if output == "pdf":
             return pdf_response(
-                report_pdf(report, result, criteria),
+                report_pdf(report, result, criteria, columns=columns),
                 pdf_filename(report.slug, *_filename_parts(report, criteria)),
                 download=wants_download(request),
             )
@@ -105,7 +118,7 @@ class ReportView(View):
         return render(
             request,
             self.template_name,
-            self._context(request, report, form, criteria, result),
+            self._context(request, report, form, criteria, result, columns),
         )
 
     # ------------------------------------------------------------------
@@ -128,14 +141,14 @@ class ReportView(View):
             },
         )
 
-    def _base_context(self, request, report, form, criteria) -> dict:
+    def _base_context(self, request, report, form, criteria, columns=None) -> dict:
         base = reverse("reports:report", kwargs={"slug": report.slug})
         return {
             "report": report,
-            "reports": grouped(),
+            "reports": grouped(request.user),
             "form": form,
             "criteria": criteria,
-            "columns": report.columns,
+            "columns": report.columns_for(request.user) if columns is None else columns,
             "base_url": base,
             "csv_url": f"{base}?{form.querystring(format='csv')}",
             "pdf_url": f"{base}?{form.querystring(format='pdf')}",
@@ -144,25 +157,25 @@ class ReportView(View):
             "period_was_swapped": getattr(form, "period_was_swapped", False),
         }
 
-    def _context(self, request, report, form, criteria, result) -> dict:
+    def _context(self, request, report, form, criteria, result, columns) -> dict:
         paginator = Paginator(result.rows, PAGE_SIZE)
         page = paginator.get_page(request.GET.get("page"))
         return {
-            **self._base_context(request, report, form, criteria),
+            **self._base_context(request, report, form, criteria, columns),
             "result": result,
             # Formatted here rather than in the template, so the screen and the
             # PDF go through the same :func:`apps.reports.columns.display`. A
             # figure that reads one way in the browser and another on the
             # printout is a figure somebody reconciles the hard way.
-            "rows": _rendered_rows(report, page.object_list),
+            "rows": _rendered_rows(columns, page.object_list),
             "page_obj": page,
             "paginator": paginator,
             "prompt": "",
-            "total_cells": _rendered_totals(report, result),
+            "total_cells": _rendered_totals(columns, result),
         }
 
 
-def _rendered_rows(report, rows) -> list[dict]:
+def _rendered_rows(columns, rows) -> list[dict]:
     """Each row as its cells, already formatted, in column order."""
     rendered = []
     for row in rows:
@@ -178,14 +191,14 @@ def _rendered_rows(report, rows) -> list[dict]:
                         # and only when the row actually references one.
                         "url": row.url if (column.link and row.url) else "",
                     }
-                    for column in report.columns
+                    for column in columns
                 ],
             }
         )
     return rendered
 
 
-def _rendered_totals(report, result) -> list[dict]:
+def _rendered_totals(columns, result) -> list[dict]:
     """The totals line, already formatted, one entry per column."""
     if not result.totals:
         return []
@@ -196,7 +209,7 @@ def _rendered_totals(report, result) -> list[dict]:
             if column.key in result.totals
             else "",
         }
-        for column in report.columns
+        for column in columns
     ]
 
 
@@ -219,11 +232,11 @@ def _filename_parts(report, criteria) -> list[str]:
     return parts
 
 
-@login_required
+@module_required(VIEW_REPORTS)
 @require_GET
 def report_index(request):
-    """Every report this system has, grouped the way the office talks about them."""
-    return render(request, "reports/index.html", {"reports": grouped()})
+    """Every report this user may open, grouped the way the office talks about them."""
+    return render(request, "reports/index.html", {"reports": grouped(request.user)})
 
 
 __all__ = ["FORMATS", "PAGE_SIZE", "ReportView", "report_index"]

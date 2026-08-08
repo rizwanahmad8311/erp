@@ -272,6 +272,7 @@ erp/
   config/settings/     base.py + dev.py + prod.py + test.py (pytest only)
   apps/
     core/              money primitives, base models, document codes, filters
+    accounts/          groups, permissions, route scope, the user admin
     accounting/        chart of accounts, LedgerEntry (append-only)
     masters/           items, UOM, parties, routes, sellers
     purchasing/        purchase orders, receipts, supplier bills
@@ -289,6 +290,48 @@ erp/
   data/                erp.sqlite3 lives here (git-ignored)
   media/               the uploaded company logo (git-ignored)
 ```
+
+### What apps/accounts provides
+
+**Django's own `Group` and model permissions are the whole mechanism.** There is
+no RBAC package and there must not be one: "module-level access" is a permission
+on a model and a group holding it, which Django already does, and a second layer
+on top would be a second answer to "may this person open the purchase screen".
+
+| Module | Contents |
+| ------ | -------- |
+| `permissions.py` | every permission name as a constant, and `assert_permissions_exist` |
+| `groups.py` | the five roles as data, and `seed_groups` — **additive, never removes** |
+| `access.py` | `module_required(*perms)`, `require(user, *perms)`, `can()` for the sidebar |
+| `scoping.py` | `scope_queryset`, `scoped_get_object_or_404`, `RouteScopedQuerySetMixin` |
+| `masking.py` | `may_see_cost` — the single answer the three output formats read |
+| `models.py` | `UserProfile`: which seller a login is, and the first-password flag |
+| `middleware.py` | `ForcePasswordChangeMiddleware` |
+
+The five groups are `Admin`, `Accountant`, `Operator`, `Booker`, `Viewer`, seeded
+by `accounts/migrations/0002_seed_groups`. Seeding is additive and idempotent for
+the same reason the chart of accounts is: a live installation will have tuned a
+group, and a seed that "corrected" it would be a support call. **Removing** a
+permission from a group is a migration somebody writes on purpose.
+
+Three rules the tests fail the build over:
+
+- **A menu never offers what a click would refuse.** The view, the template and
+  the sidebar read the same permission name. `{% if perms.sales.view_salesinvoice %}`
+  is Django's own `perms`, from the auth context processor.
+- **Posting is not editing.** `post_` / `cancel_` / `amend_` are separate from
+  `change_` and from each other, derived by `DocumentModel.post_permission()` and
+  friends. An Operator writes bills all day and can reverse nothing.
+- **A booker sees their own routes, and typing an id does not get round it.**
+  Scope is `UserProfile.seller` → `RouteSeller` → routes, applied **at the view**
+  and never in a manager — the posting services and every report must keep seeing
+  everything (§6). A scoped login with no seller sees *nothing*, not everything.
+
+`masters.view_cost_price` is the one permission that changes what a page
+*contains* rather than whether it opens, so it is honoured where the columns are
+**chosen** (`Report.columns_for`) rather than where they are drawn. All three
+formats — screen, CSV, PDF — build from that one list, because a column dropped
+from the table and still written into the export is how this normally leaks.
 
 ### What apps/reports provides
 

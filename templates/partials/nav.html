@@ -1,0 +1,44 @@
+{% comment %}
+  The module bar across the top of every screen.
+
+  Each entry is behind the same permission the view itself checks, using
+  Django's own `perms` (from django.contrib.auth.context_processors.auth — no
+  context processor of ours is involved). That agreement is the whole point:
+  a module somebody cannot open is a module they are not offered, rather than a
+  link that hands them a 403.
+
+    {% if perms.sales.view_salesinvoice %}   here
+    @module_required("sales.view_salesinvoice")   in apps/sales/views.py
+
+  `.no-print` throughout — this is chrome, and a printed invoice does not carry
+  a navigation bar.
+{% endcomment %}
+
+<nav class="no-print mx-auto flex max-w-7xl flex-wrap items-center gap-x-6 gap-y-1 px-4 py-2 text-sm">
+  {% if perms.sales.view_salesinvoice %}
+    <a href="{% url 'sales:list' slug='invoices' %}" class="hover:underline">Sales</a>
+  {% endif %}
+  {% if perms.purchasing.view_purchaseinvoice %}
+    <a href="{% url 'purchasing:list' slug='invoices' %}" class="hover:underline">Purchases</a>
+  {% endif %}
+  {% if perms.payments.view_payment %}
+    <a href="{% url 'payments:recovery' %}" class="hover:underline">Recovery</a>
+    <a href="{% url 'payments:list' %}" class="hover:underline">Payments</a>
+  {% endif %}
+  {% if perms.reports.view_reports %}
+    <a href="{% url 'reports:index' %}" class="hover:underline">Reports</a>
+  {% endif %}
+
+  <span class="ml-auto flex items-center gap-3 text-gray-500">
+    {% if user.is_authenticated %}
+      <span title="{{ user.get_full_name|default:user.username }}">{{ user.username }}</span>
+      {% if perms.accounts.manage_users %}
+        <a href="{% url 'admin:auth_user_changelist' %}" class="hover:underline">Users</a>
+      {% endif %}
+      <a href="{% url 'admin:password_change' %}" class="hover:underline">Password</a>
+      <a href="{% url 'admin:logout' %}" class="hover:underline">Sign out</a>
+    {% else %}
+      <a href="{% url 'admin:login' %}" class="hover:underline">Sign in</a>
+    {% endif %}
+  </span>
+</nav>

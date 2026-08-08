@@ -397,9 +397,18 @@ class TestAppRegistry:
         from django.apps import apps as django_apps
 
         reports_models = {m.__name__ for m in django_apps.get_app_config("reports").get_models()}
-        assert reports_models == {"CompanyProfile"}, (
+        assert reports_models == {"CompanyProfile", "ReportAccess"}, (
             f"unexpected reports models: {sorted(reports_models)}"
         )
+
+        # ReportAccess is the exception that proves the rule: it is unmanaged,
+        # has no table and holds nothing at all. Django hangs a permission on a
+        # model or nowhere, and "may this person open the financial statements"
+        # is not a figure.
+        from apps.reports.models import ReportAccess
+
+        assert not ReportAccess._meta.managed
+        assert [f.name for f in ReportAccess._meta.get_fields()] == ["id"]
 
     def test_the_company_profile_caches_no_ledger_figure(self):
         from apps.reports.models import CompanyProfile
@@ -412,11 +421,20 @@ class TestAppRegistry:
         ]
         assert not offenders, f"CompanyProfile must hold no figures: {offenders}"
 
-    def test_backup_holds_no_models_yet(self):
+    def test_backup_stores_nothing(self):
+        """The backup app holds permissions and no data.
+
+        A backup is a file on disk, not a row. ``BackupPolicy`` exists only
+        because Django attaches a permission to a model, and it is unmanaged —
+        ``migrate`` creates no table for it. When a run log arrives it will be a
+        real model and this test should say so.
+        """
         from django.apps import apps as django_apps
 
         models = [m for m in django_apps.get_models() if m._meta.app_label == "backup"]
-        assert models == [], f"Unexpected models: {models}"
+        assert [m.__name__ for m in models] == ["BackupPolicy"]
+        assert not models[0]._meta.managed, "the backup app stores nothing"
+        assert [f.name for f in models[0]._meta.get_fields()] == ["id"]
 
     def test_core_holds_only_infrastructure(self):
         from django.apps import apps as django_apps

@@ -170,7 +170,9 @@ class PurchaseInvoice(PurchaseDocument):
         verbose_name = "purchase invoice"
         verbose_name_plural = "purchase invoices"
         permissions = [
+            ("post_purchaseinvoice", "Can post a purchase invoice to the ledger"),
             ("cancel_purchaseinvoice", "Can cancel a purchase invoice and reverse its entries"),
+            ("amend_purchaseinvoice", "Can raise an amendment of a cancelled purchase invoice"),
         ]
         constraints = [
             # The supplier's own bill number, once per supplier. Entering the
@@ -254,7 +256,9 @@ class PurchaseReturn(PurchaseDocument):
         verbose_name = "purchase return"
         verbose_name_plural = "purchase returns"
         permissions = [
+            ("post_purchasereturn", "Can post a purchase return to the ledger"),
             ("cancel_purchasereturn", "Can cancel a purchase return and reverse its entries"),
+            ("amend_purchasereturn", "Can raise an amendment of a cancelled purchase return"),
         ]
         constraints = [
             models.UniqueConstraint(

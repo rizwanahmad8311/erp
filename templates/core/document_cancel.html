@@ -128,8 +128,14 @@
               <th class="py-1 pr-2">Item</th>
               <th class="py-1 pr-2">Warehouse</th>
               <th class="py-1 pr-2 text-right">Qty</th>
-              <th class="py-1 pr-2 text-right">Rate</th>
-              <th class="py-1 text-right">Value</th>
+              {% comment %} Rate and value are what the goods cost — masked
+                 without masters.view_cost_price, the same as everywhere else.
+                 The quantities stay: what is coming back into stock is not a
+                 cost price. {% endcomment %}
+              {% if perms.masters.view_cost_price %}
+                <th class="py-1 pr-2 text-right">Rate</th>
+                <th class="py-1 text-right">Value</th>
+              {% endif %}
             </tr>
           </thead>
           <tbody>
@@ -141,8 +147,10 @@
                 </td>
                 <td class="py-0.5 pr-2 text-xs">{{ line.warehouse.code }}</td>
                 <td class="amount py-0.5 pr-2">{{ line.qty_base|qty }}</td>
-                <td class="amount py-0.5 pr-2">{{ line.rate_paisa|money }}</td>
-                <td class="amount py-0.5">{{ line.value_paisa|money }}</td>
+                {% if perms.masters.view_cost_price %}
+                  <td class="amount py-0.5 pr-2">{{ line.rate_paisa|money }}</td>
+                  <td class="amount py-0.5">{{ line.value_paisa|money }}</td>
+                {% endif %}
               </tr>
             {% endfor %}
           </tbody>

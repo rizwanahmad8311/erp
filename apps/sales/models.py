@@ -200,7 +200,9 @@ class SalesInvoice(SalesDocument):
                 "override_credit_limit",
                 "Can post a sales invoice that takes a client over their credit limit",
             ),
+            ("post_salesinvoice", "Can post a sales invoice to the ledger"),
             ("cancel_salesinvoice", "Can cancel a sales invoice and reverse its entries"),
+            ("amend_salesinvoice", "Can raise an amendment of a cancelled sales invoice"),
         ]
 
     # ------------------------------------------------------------------
@@ -317,7 +319,9 @@ class SalesReturn(SalesDocument):
         verbose_name = "sales return"
         verbose_name_plural = "sales returns"
         permissions = [
+            ("post_salesreturn", "Can post a credit note to the ledger"),
             ("cancel_salesreturn", "Can cancel a credit note and reverse its entries"),
+            ("amend_salesreturn", "Can raise an amendment of a cancelled credit note"),
         ]
 
     def post(self, *, user=None):

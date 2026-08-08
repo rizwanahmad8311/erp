@@ -51,6 +51,11 @@
   </div>
 
   {# ------------------------------------------------------- the GL preview #}
+  {% comment %}
+    Behind masters.view_cost_price, like its sales twin: the panel names
+    Inventory and its amount, which is the cost of the goods.
+  {% endcomment %}
+  {% if perms.masters.view_cost_price %}
   <div>
     <h2 class="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-600">
       {% if document.status == "DRAFT" %}
@@ -109,6 +114,7 @@
       <p class="text-sm text-gray-500">Add a line to see what this will post.</p>
     {% endif %}
   </div>
+  {% endif %}
 </div>
 
 {# --------------------------------------------------------------- actions #}

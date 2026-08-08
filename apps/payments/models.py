@@ -310,7 +310,9 @@ class Payment(DocumentModel):
         verbose_name_plural = "payments"
         ordering = ["-posting_date", "-id"]
         permissions = [
+            ("post_payment", "Can post a receipt or payment to the ledger"),
             ("cancel_payment", "Can cancel a receipt or payment and reverse its entries"),
+            ("amend_payment", "Can raise an amendment of a cancelled receipt or payment"),
         ]
         indexes = [
             # Every party statement, ageing row and recovery figure starts here.
@@ -767,10 +769,12 @@ class ChequeEvent(DocumentModel):
         verbose_name_plural = "cheque events"
         ordering = ["-posting_date", "-id"]
         permissions = [
+            ("post_chequeevent", "Can record that the bank cleared or bounced a cheque"),
             (
                 "cancel_chequeevent",
                 "Can cancel a cheque clearing or bounce and reverse its entries",
             ),
+            ("amend_chequeevent", "Can raise an amendment of a cancelled cheque event"),
         ]
         constraints = [
             # Partial unique index: many drafts, at most one posted. Without it,

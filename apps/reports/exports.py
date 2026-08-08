@@ -39,7 +39,7 @@ def _safe(text: str, *, numeric: bool) -> str:
     return f"'{text}" if text[0] in _FORMULA_LEADERS else text
 
 
-def write_csv(report, result, *, stream=None) -> str:
+def write_csv(report, result, *, columns=None, stream=None) -> str:
     """The report as CSV text: headers, rows, then the totals line.
 
     The totals row is last and is labelled, so a file read by a human and a file
@@ -47,16 +47,22 @@ def write_csv(report, result, *, stream=None) -> str:
     one — a script that sums the column will double-count and notice, instead of
     quietly agreeing with a total it did not compute.
     """
+    # ``columns`` rather than ``report.columns``: a cost column the user may
+    # not see must be absent from the **file**, not merely from the screen.
+    # This is the leak the whole masking design exists to close — see
+    # apps.reports.registry.Report.columns_for.
+    columns = report.columns if columns is None else tuple(columns)
+
     stream = stream if stream is not None else io.StringIO()
     writer = csv.writer(stream, lineterminator="\n")
 
-    writer.writerow([column.label for column in report.columns])
+    writer.writerow([column.label for column in columns])
 
     for row in result.rows:
         writer.writerow(
             [
                 _safe(export(column, row.get(column.key)), numeric=column.is_numeric)
-                for column in report.columns
+                for column in columns
             ]
         )
 
@@ -66,14 +72,14 @@ def write_csv(report, result, *, stream=None) -> str:
                 _safe(export(column, result.totals.get(column.key)), numeric=column.is_numeric)
                 if column.key in result.totals
                 else ""
-                for column in report.columns
+                for column in columns
             ]
         )
 
     return stream.getvalue()
 
 
-def csv_response(report, result, *, filename: str) -> HttpResponse:
+def csv_response(report, result, *, filename: str, columns=None) -> HttpResponse:
     """The CSV as a download.
 
     A BOM is written ahead of the text. Without it Excel on Windows — which is
@@ -83,7 +89,7 @@ def csv_response(report, result, *, filename: str) -> HttpResponse:
     """
     response = HttpResponse(content_type="text/csv; charset=utf-8")
     response["Content-Disposition"] = f'attachment; filename="{filename}"'
-    response.write(write_csv(report, result).encode("utf-8-sig"))
+    response.write(write_csv(report, result, columns=columns).encode("utf-8-sig"))
     return response
 
 

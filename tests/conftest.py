@@ -20,11 +20,114 @@ def user(db):
     )
 
 
+def _clear_permission_cache(user):
+    """Forget what Django already worked out about this user's permissions.
+
+    ``has_perm`` memoises on the instance, so a fixture that grants a permission
+    to a user something has already asked about would otherwise be ignored.
+    """
+    for cache in ("_perm_cache", "_user_perm_cache", "_group_perm_cache"):
+        user.__dict__.pop(cache, None)
+    return user
+
+
+def grant(user, *permissions):
+    """Give ``user`` named permissions: ``grant(u, "sales.post_salesinvoice")``.
+
+    Raises on a name that does not exist, which is the point: a permission that
+    is misspelled fails **open** — nobody holds it, so the view is simply
+    unreachable and the test failure reads as a policy decision rather than a
+    typo. See :func:`apps.accounts.permissions.assert_permissions_exist`.
+    """
+    from apps.accounts.permissions import split
+
+    for permission in permissions:
+        app_label, codename = split(permission)
+        try:
+            user.user_permissions.add(
+                Permission.objects.get(content_type__app_label=app_label, codename=codename)
+            )
+        except Permission.DoesNotExist:
+            raise LookupError(f"No such permission: {permission!r}") from None
+    return _clear_permission_cache(user)
+
+
+def ensure_groups():
+    """Guarantee the five groups and every permission they hold.
+
+    They are created by ``apps.accounts.migrations.0002_seed_groups`` and so are
+    already in a freshly built test database. They are re-seeded here anyway,
+    for exactly the reason the ``accounts`` fixture below re-seeds the chart: a
+    ``TransactionTestCase`` — ``tests/test_sequences.py`` runs one, for the real
+    SQLite locking — flushes every table on teardown and takes migration-loaded
+    rows with it, for the rest of the session and for the next ``--reuse-db``
+    run. Permissions and content types go with them, so both are rebuilt here
+    before the groups that depend on them.
+
+    Idempotent, so this guarantees the groups instead of depending on test
+    ordering.
+    """
+    from django.apps import apps as global_apps
+    from django.contrib.auth.management import create_permissions
+    from django.contrib.auth.models import Group
+
+    from apps.accounts.groups import GROUP_NAMES, seed_groups
+
+    if Group.objects.filter(name__in=GROUP_NAMES).count() == len(GROUP_NAMES):
+        return
+
+    for app_config in global_apps.get_app_configs():
+        previous = app_config.models_module
+        app_config.models_module = True
+        try:
+            create_permissions(app_config, verbosity=0)
+        finally:
+            app_config.models_module = previous
+
+    seed_groups(Group, Permission)
+
+
+def join_group(user, *names):
+    """Put ``user`` in one or more of the seeded groups.
+
+    Preferring this to a pile of individual grants is what keeps a view test
+    testing the view: if the Operator group stops being able to post a bill, the
+    sales entry tests should be the thing that notices.
+    """
+    from django.contrib.auth.models import Group
+
+    ensure_groups()
+    for name in names:
+        user.groups.add(Group.objects.get(name=name))
+    return _clear_permission_cache(user)
+
+
+def grant_lifecycle(user, *models):
+    """``post_`` / ``cancel_`` / ``amend_`` on each document model.
+
+    For the tests that drive a whole document through its lifecycle from a
+    browser. The screens check each one separately (CLAUDE.md §5), so a test
+    that only cancels should use :func:`grant_cancel` and find out.
+    """
+    return grant(
+        user,
+        *(
+            permission
+            for model in models
+            for permission in (
+                model.post_permission(),
+                model.cancel_permission(),
+                model.amend_permission(),
+            )
+        ),
+    )
+
+
 def grant_cancel(user, *models):
     """Give ``user`` the ``<app>.cancel_<model>`` permission for each model.
 
     Cancelling is permissioned per document type — see
-    :meth:`apps.core.models.DocumentModel.cancel_permission`. A test that drives
+    :meth:`~apps.core.models.DocumentModel.cancel_permission`. A test that drives
     a cancel *screen* needs the permission; a test that drives the *service*
     does not, because the service is trusted code and the permission is a rule
     about who may reach it from a browser.
@@ -32,11 +135,7 @@ def grant_cancel(user, *models):
     Returns the user, and clears the permission cache so a user who has already
     been asked ``has_perm`` sees the new grant.
     """
-    codenames = [model.cancel_permission().split(".", 1)[1] for model in models]
-    user.user_permissions.add(*Permission.objects.filter(codename__in=codenames))
-    for cache in ("_perm_cache", "_user_perm_cache", "_group_perm_cache"):
-        user.__dict__.pop(cache, None)
-    return user
+    return grant(user, *(model.cancel_permission() for model in models))
 
 
 @pytest.fixture

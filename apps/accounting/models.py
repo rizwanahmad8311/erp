@@ -702,6 +702,17 @@ class StockEntry(AppendOnlyModel):
         verbose_name = "stock entry"
         verbose_name_plural = "stock entries"
         ordering = ["posting_date", "id"]
+        permissions = [
+            # The per-person half of ``settings.ALLOW_NEGATIVE_STOCK``. A
+            # negative position has no cost behind it to average, so every later
+            # issue out of it is valued at the last rate known and the error
+            # spreads quietly into cost of goods sold — which is why this is a
+            # permission somebody is granted rather than a checkbox on a form.
+            (
+                "override_negative_stock",
+                "Can issue stock a warehouse does not hold, taking it below zero",
+            ),
+        ]
         indexes = [
             # The valuation query: "this item, in this warehouse, up to this
             # date". Every balance, every rate and every posting reads it.

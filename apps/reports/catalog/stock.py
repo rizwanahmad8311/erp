@@ -50,8 +50,8 @@ STOCK_BALANCE_COLUMNS = (
     Column("warehouse", "Warehouse", TEXT, width=14),
     Column("qty", "On hand", QTY, width=13),
     Column("pieces", "Pieces", QTY, width=9),
-    Column("rate", "Rate", MONEY, width=10),
-    Column("value", "Value", MONEY, width=12, total=True),
+    Column("rate", "Rate", MONEY, width=10, sensitive=True),
+    Column("value", "Value", MONEY, width=12, total=True, sensitive=True),
 )
 
 
@@ -148,10 +148,10 @@ STOCK_LEDGER_COLUMNS = (
     Column("warehouse", "Warehouse", TEXT, width=10),
     Column("in_qty", "In", QTY, width=9, blank_zero=True),
     Column("out_qty", "Out", QTY, width=9, blank_zero=True),
-    Column("rate", "Rate", MONEY, width=10),
-    Column("value", "Value", MONEY, width=11, total=True),
+    Column("rate", "Rate", MONEY, width=10, sensitive=True),
+    Column("value", "Value", MONEY, width=11, total=True, sensitive=True),
     Column("balance_qty", "Balance", QTY, width=10),
-    Column("balance_value", "Balance value", MONEY, width=12),
+    Column("balance_value", "Balance value", MONEY, width=12, sensitive=True),
 )
 
 
@@ -336,8 +336,8 @@ ITEM_SALES_COLUMNS = (
     Column("pieces", "Pieces", QTY, width=9),
     Column("revenue", "Revenue", MONEY, width=13, total=True),
     Column("tax", "Tax", MONEY, width=11, total=True, blank_zero=True),
-    Column("cost", "Cost", MONEY, width=12, total=True),
-    Column("margin", "Margin", MONEY, width=12, total=True),
+    Column("cost", "Cost", MONEY, width=12, total=True, sensitive=True),
+    Column("margin", "Margin", MONEY, width=12, total=True, sensitive=True),
 )
 
 
@@ -409,8 +409,8 @@ ITEM_PURCHASE_COLUMNS = (
     Column("item", "Item", TEXT, width=32),
     Column("qty", "Received", QTY, width=13),
     Column("pieces", "Pieces", QTY, width=10),
-    Column("cost", "Cost", MONEY, width=14, total=True),
-    Column("billed", "Billed", MONEY, width=14, total=True),
+    Column("cost", "Cost", MONEY, width=14, total=True, sensitive=True),
+    Column("billed", "Billed", MONEY, width=14, total=True, sensitive=True),
 )
 
 
@@ -477,7 +477,7 @@ SLOW_MOVING_COLUMNS = (
     Column("code", "Item code", CODE, width=12),
     Column("item", "Item", TEXT, width=32),
     Column("qty", "On hand", QTY, width=13),
-    Column("value", "Value tied up", MONEY, width=14, total=True),
+    Column("value", "Value tied up", MONEY, width=14, total=True, sensitive=True),
     Column("last_moved", "Last moved", DATE, width=12),
     Column("idle_days", "Idle days", COUNT, width=10),
 )

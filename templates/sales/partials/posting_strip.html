@@ -37,7 +37,14 @@
             <td class="py-1 font-semibold">Total</td>
             <td class="amount py-1 text-base font-semibold">{{ document.total_paisa|money }}</td>
           </tr>
-          {% if cogs_paisa %}
+          {% comment %}
+            Cost of goods sold, and only for somebody who may see cost prices —
+            masters.view_cost_price. A booker standing in a shop must not be
+            able to read the margin off the screen they are taking an order on.
+            The same permission drops the cost columns out of every report, in
+            the CSV and the PDF as well; see apps/accounts/masking.py.
+          {% endcomment %}
+          {% if cogs_paisa and perms.masters.view_cost_price %}
             <tr>
               <td class="py-0.5 text-xs text-gray-500">
                 {% if document.status == "DRAFT" %}Cost (estimated){% else %}Cost{% endif %}
@@ -97,6 +104,15 @@
     </div>
 
     {# ------------------------------------------------------- the GL preview #}
+    {% comment %}
+      The double-entry preview, behind masters.view_cost_price.
+
+      It is not decoration on this screen — it names Cost of Goods Sold and
+      Inventory with their amounts, which *is* the cost price. Masking the COGS
+      line in the totals above and leaving this panel drawn would hand the same
+      figure back one block further down; see apps/accounts/masking.py.
+    {% endcomment %}
+    {% if perms.masters.view_cost_price %}
     <div>
       <h2 class="mb-1 text-xs font-semibold uppercase tracking-wide text-gray-600">
         {% if document.status == "DRAFT" %}
@@ -147,6 +163,7 @@
         <p class="text-sm text-gray-500">Add a line to see what this will post.</p>
       {% endif %}
     </div>
+    {% endif %}
   </div>
 
   {# --------------------------------------------------------------- actions #}

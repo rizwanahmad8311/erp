@@ -217,6 +217,17 @@ class Item(TimeStampedModel):
         ordering = ["code"]
         verbose_name = "item"
         verbose_name_plural = "items"
+        permissions = [
+            # Hung on Item because an item is what a cost price is *of*, and
+            # Django has nowhere else to put a permission. It is not about this
+            # model's rows: it decides whether cost of goods sold, margin, the
+            # valuation rate and purchase rates are rendered at all — on screen,
+            # in the CSV and in the PDF. See apps.accounts.masking.
+            (
+                "view_cost_price",
+                "Can see cost prices: COGS, margin, valuation rates and purchase rates",
+            ),
+        ]
         indexes = [
             models.Index(fields=["name"], name="item_name_idx"),
         ]
