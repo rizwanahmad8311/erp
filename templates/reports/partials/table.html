@@ -1,0 +1,80 @@
+{% comment %}
+  The report grid. Every report, every time.
+
+  Nothing here formats a number. Each cell arrived from
+  apps/reports/framework.py already rendered by apps.reports.columns.display —
+  the same function the ReportLab renderer calls — so a figure cannot read one
+  way in the browser and another on the printout.
+
+  Three rules the markup carries:
+
+  * numeric columns get `.amount` (tabular figures, right-aligned, mono), which
+    is the screen half of "a column of figures adds up by eye";
+  * a row that references a document links to it, on the one column that
+    carries the code;
+  * a cancelled document is struck through, never hidden (CLAUDE.md §5). It
+    contributes nothing to the totals either way, because the ledger's reversing
+    entries already took it back out.
+
+  `thead` repeats across printed pages via @media print in
+  static/src/css/app.css — the browser's twin of the PDF's repeatRows=1.
+{% endcomment %}
+
+<div class="-mx-4 overflow-x-auto px-4">
+  <table class="w-full border-collapse text-sm">
+    <thead>
+      <tr class="border-b border-gray-300 text-left text-xs uppercase tracking-wide text-gray-600">
+        {% for column in columns %}
+          <th class="py-2 pr-2 {% if column.is_numeric %}text-right{% endif %} whitespace-nowrap">
+            {{ column.label }}
+          </th>
+        {% endfor %}
+      </tr>
+    </thead>
+
+    <tbody>
+      {% for entry in rows %}
+        <tr class="border-b border-gray-100
+                   {% if entry.row.emphasis == 'heading' %}bg-gray-100 font-semibold{% endif %}
+                   {% if entry.row.emphasis == 'subtotal' or entry.row.emphasis == 'total' %}border-t border-gray-300 bg-gray-50 font-medium{% endif %}
+                   {% if entry.row.emphasis == 'opening' %}bg-gray-50 italic text-gray-600{% endif %}
+                   {% if entry.row.is_cancelled %}text-gray-400{% endif %}">
+          {% for cell in entry.cells %}
+            <td class="py-1.5 pr-2 {{ cell.column.css_class }}
+                       {% if cell.alarm %}text-cancelled font-medium{% endif %}
+                       {% if entry.row.is_cancelled %}line-through{% endif %}">
+              {% if cell.url %}
+                <a href="{{ cell.url }}" class="text-brand-700 underline">{{ cell.text }}</a>
+              {% else %}
+                {{ cell.text }}
+              {% endif %}
+            </td>
+          {% endfor %}
+        </tr>
+      {% empty %}
+        <tr>
+          <td colspan="{{ columns|length }}" class="py-6 text-center text-sm text-gray-500">
+            Nothing on the ledger matched this report.
+          </td>
+        </tr>
+      {% endfor %}
+    </tbody>
+
+    {% if total_cells %}
+      {% comment %}
+        The totals are of the **whole** report, not of the page you are looking
+        at — apps/reports/registry.py::ReportResult computes them before the
+        rows are sliced. A totals line that quietly meant "this page" is the
+        most dangerous thing a report can print, so the note under the table
+        says which it is.
+      {% endcomment %}
+      <tfoot class="print-keep-together">
+        <tr class="border-t-2 border-gray-800 font-semibold">
+          {% for cell in total_cells %}
+            <td class="py-2 pr-2 {{ cell.column.css_class }}">{{ cell.text }}</td>
+          {% endfor %}
+        </tr>
+      </tfoot>
+    {% endif %}
+  </table>
+</div>

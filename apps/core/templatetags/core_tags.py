@@ -9,6 +9,7 @@ from django import template
 from django.utils.html import format_html
 
 from apps.core import money as money_module
+from apps.core import words as words_module
 from apps.core.enums import DocumentStatus
 
 register = template.Library()
@@ -32,6 +33,19 @@ def money(paisa) -> str:
     if paisa is None or paisa == "":
         return ""
     return money_module.fmt(int(paisa))
+
+
+@register.filter(name="words")
+def words(paisa) -> str:
+    """``{{ invoice.total_paisa|words }}`` -> ``"Rupees One Lakh … Only"``
+
+    Lakh and crore, not million — see :mod:`apps.core.words`. Printed under the
+    total on an invoice, on paper and on screen, so the browser's own print and
+    the ReportLab PDF say the same sentence.
+    """
+    if paisa is None or paisa == "":
+        return ""
+    return words_module.amount_in_words(int(paisa))
 
 
 @register.filter(name="qty")

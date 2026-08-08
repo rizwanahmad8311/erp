@@ -72,14 +72,119 @@
   }
 }
 
+/* ==========================================================================
+ * Print
+ * ==========================================================================
+ * This is the fast path and the one the office actually uses: a hundred bills
+ * a day go from the screen to the printer with Ctrl+P and no PDF step at all.
+ * The ReportLab renderers in apps/reports/pdf/ are the other path — for the
+ * copy that has to be emailed, archived or handed over.
+ *
+ * So this stylesheet has a job: take the entry screen, strip everything that
+ * is a control rather than a document, and leave a bill. Everything hidden
+ * here is hidden because it is a button, a filter, a search box or a preview —
+ * never because it is a number.
+ */
 @media print {
+  /* Marked in the templates: nav, forms, action strips, the entry row. */
   .no-print {
     display: none !important;
   }
 
-  /* The watermark prints, and printing is how this system makes a PDF. A
-   * cancelled bill on paper without the word CANCELLED on it is a cancelled
-   * bill somebody will pay.
+  /* The screen is a workspace; the page is a document. Drop the chrome that
+   * only makes sense on a scrolling viewport. */
+  @page {
+    size: A4;
+    margin: 14mm;
+  }
+
+  /* A wide report — an ageing ladder, a day book, a route day sheet — does not
+   * fit across A4 portrait, and the ReportLab version of it already prints
+   * landscape (apps/reports/registry.py::Report.landscape). A named page is
+   * how one stylesheet does both: templates/reports/report.html puts
+   * `.print-landscape` around the content when the report declares it.
+   *
+   * A browser that does not support named pages ignores this and prints
+   * portrait, which is what would have happened without it. */
+  @page landscape {
+    size: A4 landscape;
+    margin: 12mm;
+  }
+
+  .print-landscape {
+    page: landscape;
+  }
+
+  /* A report's table is scrollable on screen and must not be on paper: an
+   * overflow container with a fixed width would print one screenful and drop
+   * the rest of the columns off the edge. */
+  .overflow-x-auto {
+    overflow: visible !important;
+  }
+
+  html,
+  body {
+    background: #fff !important;
+    font-size: 10pt;
+  }
+
+  main {
+    max-width: none !important;
+    padding: 0 !important;
+    margin: 0 !important;
+  }
+
+  header {
+    border: 0 !important;
+  }
+
+  /* The letterhead. Hidden on screen — the browser already shows which system
+   * you are in — and printed at the top of the page, because a bill with no
+   * company name on it is not a bill. Filled in from CompanyProfile by
+   * templates/core/partials/print_header.html. */
+  .print-only {
+    display: none;
+  }
+
+  .print-header {
+    display: block !important;
+  }
+
+  /* A line table must not be split mid-row, and its head repeats on page two
+   * — the same rule the PDF's repeatRows=1 follows. */
+  table {
+    page-break-inside: auto;
+  }
+
+  thead {
+    display: table-header-group;
+  }
+
+  tr {
+    page-break-inside: avoid;
+  }
+
+  /* The totals and the amount in words belong with the last line, not alone
+   * on a second sheet. */
+  .print-keep-together {
+    page-break-inside: avoid;
+  }
+
+  /* Ink. A laser at 600dpi renders a 5% grey band as a smudge, and a colour
+   * that only exists to draw the eye on screen costs toner on paper. */
+  .bg-gray-50,
+  .bg-white {
+    background: transparent !important;
+  }
+
+  a {
+    text-decoration: none !important;
+    color: inherit !important;
+  }
+
+  /* The watermark prints, and printing is also how this system makes a PDF
+   * from the browser. A cancelled bill on paper without the word CANCELLED on
+   * it is a cancelled bill somebody will pay.
    *
    * position: fixed inside a print context puts it on every page, which is
    * what a multi-page invoice needs. The opacity is raised because laser

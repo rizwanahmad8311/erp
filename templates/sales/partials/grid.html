@@ -120,4 +120,12 @@
 
   {# ------------------------------------------------------- posting strip #}
   {% include "sales/partials/posting_strip.html" %}
+
+  {% comment %}
+    The totals for paper. The posting strip above is `.no-print` — it is a
+    workspace control with a Post button and a ledger preview on it — so the
+    printed bill gets its own totals block, its amount in words and a signature
+    line. See templates/core/partials/print_totals.html.
+  {% endcomment %}
+  {% include "core/partials/print_totals.html" with signature_left="Received the goods in good order" %}
 </div>

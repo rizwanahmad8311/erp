@@ -37,6 +37,8 @@ from apps.core.enums import DocumentStatus
 from apps.core.exceptions import CoreError
 from apps.core.views import cancel_view
 from apps.masters.services import fmt_qty
+from apps.reports.pdf import purchase_invoice_pdf
+from apps.reports.responses import pdf_filename, pdf_response, wants_download, wants_pdf
 
 from . import services
 from .forms import (
@@ -265,9 +267,22 @@ def document_create(request, slug: str):
 @login_required
 @require_GET
 def document_detail(request, slug: str, pk: int):
-    """The entry screen. Everything happens here without leaving the keyboard."""
+    """The entry screen — or the PDF of it, with ``?format=pdf``.
+
+    Two output paths (see :mod:`apps.reports.pdf`): the screen prints through
+    the browser's own ``@media print`` stylesheet, which is the fast path, and
+    the PDF is the copy that gets filed against the supplier's own bill.
+    """
     kind = _kind(slug)
     document = _get_document(kind, pk)
+
+    if wants_pdf(request):
+        return pdf_response(
+            purchase_invoice_pdf(document, paper=request.GET.get("paper") or "a4"),
+            pdf_filename(document.code, document.vendor.name),
+            download=wants_download(request),
+        )
+
     context = _entry_context(request, kind, document)
     return render(request, "purchasing/document_detail.html", context)
 

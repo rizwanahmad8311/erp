@@ -42,6 +42,8 @@ from apps.core.views import cancel_view
 from apps.masters.enums import Unit
 from apps.masters.models import Client, Item
 from apps.masters.services import fmt_qty
+from apps.reports.pdf import sales_invoice_pdf
+from apps.reports.responses import pdf_filename, pdf_response, wants_download, wants_pdf
 
 from . import services
 from .forms import LineEntryForm, SalesInvoiceForm, SalesReturnForm
@@ -282,9 +284,26 @@ def document_create(request, slug: str):
 @login_required
 @require_GET
 def document_detail(request, slug: str, pk: int):
-    """The entry screen. Everything happens here without leaving the keyboard."""
+    """The entry screen — or the PDF of it, with ``?format=pdf``.
+
+    Two output paths, on purpose (see :mod:`apps.reports.pdf`). The screen is
+    the fast one: it carries a real ``@media print`` stylesheet, so Ctrl+P at
+    the counter goes straight to the printer with no PDF step at all. The PDF is
+    for the copy that has to be emailed or filed.
+
+    Deliberately not inside any transaction: CLAUDE.md §4 says a posting
+    transaction never does I/O, and this route only reads.
+    """
     kind = _kind(slug)
     document = _get_document(kind, pk)
+
+    if wants_pdf(request):
+        return pdf_response(
+            sales_invoice_pdf(document, paper=request.GET.get("paper") or "a4"),
+            pdf_filename(document.code, document.client.name),
+            download=wants_download(request),
+        )
+
     return render(request, "sales/document_detail.html", _entry_context(request, kind, document))
 
 

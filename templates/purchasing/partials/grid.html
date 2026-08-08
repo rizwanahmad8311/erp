@@ -149,4 +149,11 @@
 
   {# ------------------------------------------------------- posting strip #}
   {% include "purchasing/partials/posting_strip.html" %}
+
+  {% comment %}
+    The totals for paper. The posting strip above is `.no-print` — it is a
+    workspace control — so the printed copy gets its own totals block, its
+    amount in words and a signature line.
+  {% endcomment %}
+  {% include "core/partials/print_totals.html" with signature_left="Checked and received" %}
 </div>

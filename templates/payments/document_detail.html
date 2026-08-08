@@ -19,6 +19,7 @@
   {% endcomment %}
   {% with document=payment %}
     {% include "core/partials/cancelled_watermark.html" %}
+    {% include "core/partials/print_header.html" with print_title=payment.get_direction_display %}
   {% endwith %}
 
   <div class="mb-3 flex flex-wrap items-baseline justify-between gap-2">
@@ -36,13 +37,21 @@
     </div>
     <div class="flex items-center gap-3">
       {{ payment.status|doc_status }}
-      <a href="{% url 'payments:list' %}" class="text-sm text-brand-700 underline">All payments</a>
-      <a href="{% url 'payments:recovery' %}" class="text-sm text-brand-700 underline">Recovery</a>
+      {% include "core/partials/print_actions.html" %}
+      {% comment %}
+        The till roll, as a link of its own. The counter PC has RECEIPT_LAYOUT
+        set to 80mm so its "PDF" is already thermal; this is for the back office
+        machine, which is set to A5 and occasionally needs a strip.
+      {% endcomment %}
+      <a href="?format=pdf&amp;layout=80mm" class="no-print text-sm text-brand-700 underline"
+         title="80mm thermal receipt">80mm</a>
+      <a href="{% url 'payments:list' %}" class="no-print text-sm text-brand-700 underline">All payments</a>
+      <a href="{% url 'payments:recovery' %}" class="no-print text-sm text-brand-700 underline">Recovery</a>
     </div>
   </div>
 
   {% with document=payment %}
-    {% include "core/partials/timeline.html" %}
+    <div class="no-print">{% include "core/partials/timeline.html" %}</div>
   {% endwith %}
 
   <div class="grid gap-4 lg:grid-cols-3">

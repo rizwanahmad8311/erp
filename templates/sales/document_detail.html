@@ -22,8 +22,9 @@
 
 {% block content %}
   {% include "core/partials/cancelled_watermark.html" %}
+  {% include "core/partials/print_header.html" with print_title=kind.title %}
 
-  <div class="mb-3 flex flex-wrap items-baseline justify-between gap-2">
+  <div class="no-print mb-3 flex flex-wrap items-baseline justify-between gap-2">
     <div>
       <h1 class="text-xl font-semibold">
         {{ kind.title }} <span class="font-mono">{{ document.code }}</span>
@@ -44,12 +45,13 @@
     </div>
     <div class="flex items-center gap-3">
       {{ document.status|doc_status }}
+      {% include "core/partials/print_actions.html" %}
       <a href="{% url 'sales:list' slug=kind.slug %}"
          class="text-sm text-brand-700 underline">All {{ kind.title|lower }}s</a>
     </div>
   </div>
 
-  {% include "core/partials/timeline.html" %}
+  <div class="no-print">{% include "core/partials/timeline.html" %}</div>
 
   {% if document.is_editable %}
     {% include "sales/partials/keyboard_help.html" %}

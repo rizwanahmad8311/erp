@@ -94,6 +94,9 @@ TEMPLATES = [
                 "django.template.context_processors.request",
                 "django.contrib.auth.context_processors.auth",
                 "django.contrib.messages.context_processors.messages",
+                # The company letterhead, for the @media print path. Lazy, so a
+                # page that never prints a header never queries for one.
+                "apps.reports.context_processors.company",
             ],
         },
     },
@@ -327,16 +330,59 @@ UNFOLD = {
                 ],
             },
             {
-                # Ageing, recovery, stock position and the day book land here.
-                # apps.reports aggregates the ledger; it holds no models of its own.
+                # apps.reports aggregates the ledger and owns exactly one model
+                # — the company profile printed at the top of every page.
+                #
+                # Only the four that get opened daily are listed. The rest are
+                # one click further in, on the index, which is built from the
+                # registry rather than from a list somebody keeps in step by
+                # hand — see apps/reports/registry.py. A sidebar with eighteen
+                # entries in it is a sidebar nobody reads.
                 "title": "Reports",
                 "separator": True,
-                "items": [],
+                "items": [
+                    {
+                        "title": "All reports",
+                        "icon": "lab_profile",
+                        "link": reverse_lazy("reports:index"),
+                        "permission": _staff,
+                    },
+                    {
+                        "title": "Trial balance",
+                        "icon": "balance",
+                        "link": reverse_lazy("reports:report", kwargs={"slug": "trial-balance"}),
+                        "permission": _staff,
+                    },
+                    {
+                        "title": "Day book",
+                        "icon": "today",
+                        "link": reverse_lazy("reports:report", kwargs={"slug": "day-book"}),
+                        "permission": _staff,
+                    },
+                    {
+                        "title": "Route day sheet",
+                        "icon": "local_shipping",
+                        "link": reverse_lazy("reports:report", kwargs={"slug": "route-day-sheet"}),
+                        "permission": _staff,
+                    },
+                    {
+                        "title": "Stock balance",
+                        "icon": "inventory",
+                        "link": reverse_lazy("reports:report", kwargs={"slug": "stock-balance"}),
+                        "permission": _staff,
+                    },
+                ],
             },
             {
                 "title": "Setup",
                 "separator": True,
                 "items": [
+                    {
+                        "title": "Company profile",
+                        "icon": "domain",
+                        "link": reverse_lazy("admin:reports_companyprofile_changelist"),
+                        "permission": _staff,
+                    },
                     {
                         "title": "Document sequences",
                         "icon": "tag",
@@ -379,6 +425,29 @@ CURRENCY_SYMBOL = "Rs"
 # the goods receipt is entered, and expect the valuation to be approximate while
 # any balance is under water.
 ALLOW_NEGATIVE_STOCK = env.bool("ALLOW_NEGATIVE_STOCK", default=False)
+
+# --------------------------------------------------------------------------
+# Printing
+# --------------------------------------------------------------------------
+# PDFs are drawn by ReportLab (apps/reports/pdf/) — a pure-Python wheel, which
+# is the whole reason it was chosen over WeasyPrint, xhtml2pdf, wkhtmltopdf or
+# headless Chrome. Every one of those needs a system library or a binary that
+# turns the six-line Windows install in CLAUDE.md §8 into a support call.
+#
+# Which typeface a PDF is set in. A family here is looked for in
+# static/src/fonts/ as <Family>-Regular.ttf and friends — the same directory the
+# browser reads its WOFF2 from, so print and screen match (CLAUDE.md §7).
+# Nothing is downloaded: when a family is not vendored, ReportLab's built-in
+# Helvetica and Courier are used, which is what the current system-font stacks
+# in static/src/css/app.css resolve to anyway.
+PDF_FONT_FAMILY = env("PDF_FONT_FAMILY", default="Inter")
+PDF_MONO_FONT_FAMILY = env("PDF_MONO_FONT_FAMILY", default="JetBrainsMono")
+
+# Which layout a payment receipt prints on, per machine. The counter PC drives
+# an 80mm thermal roll; the back office prints A5 for the file. Set it in .env
+# on each machine — a ?layout= on the URL overrides it for one job.
+# One of: a4, a5, 80mm, 58mm.
+RECEIPT_LAYOUT = env("RECEIPT_LAYOUT", default="a5")
 
 LOGGING = {
     "version": 1,

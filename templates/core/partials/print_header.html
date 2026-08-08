@@ -1,0 +1,47 @@
+{% comment %}
+  The letterhead for the browser's own print — the fast path.
+
+  Hidden on screen (`.print-only`, revealed by @media print in
+  static/src/css/app.css) because the browser already shows which system you are
+  in; printed at the top of the page, because a bill with no company name on it
+  is not a bill.
+
+  This is the HTML twin of the header ReportLab draws in
+  apps/reports/pdf/blocks.py::draw_page_header. The two are separate on purpose
+  and that is the honest cost of not using an HTML-to-PDF converter — see
+  apps/reports/pdf/__init__.py for why none of those is installable on the
+  production machine. They read the same CompanyProfile row, so the details
+  cannot disagree even though the layouts are written twice.
+
+  Needs `company` in the context — supplied by apps.reports.context_processors.
+{% endcomment %}
+
+<div class="print-only print-header mb-4 border-b-2 border-gray-800 pb-2">
+  <div class="flex items-start justify-between gap-4">
+    <div>
+      {% if company.logo %}
+        {# Served from MEDIA_ROOT on this machine. Never a remote URL — the #}
+        {# office PC has no internet (CLAUDE.md §7). #}
+        <img src="{{ company.logo.url }}" alt="" style="max-height: 16mm; max-width: 38mm;">
+      {% endif %}
+      <div class="text-base font-semibold">{{ company.name|default:"—" }}</div>
+      {% for line in company.address_lines %}
+        <div class="text-xs text-gray-600">{{ line }}</div>
+      {% endfor %}
+      {% if company.contact_line %}
+        <div class="text-xs text-gray-600">{{ company.contact_line }}</div>
+      {% endif %}
+      {% if company.tax_line %}
+        <div class="text-xs text-gray-600">{{ company.tax_line }}</div>
+      {% endif %}
+    </div>
+    <div class="text-right">
+      <div class="text-sm font-semibold uppercase tracking-wide">{{ print_title }}</div>
+      <div class="font-mono text-xs">{{ document.code }}</div>
+      <div class="text-xs text-gray-600">{{ document.posting_date|date:"d M Y" }}</div>
+      {% if document.amended_from_id %}
+        <div class="text-xs text-gray-600">Amends {{ document.amended_from.code }}</div>
+      {% endif %}
+    </div>
+  </div>
+</div>

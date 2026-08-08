@@ -1,0 +1,67 @@
+{% load core_tags %}
+
+{% comment %}
+  The totals, the amount in words and the signature line — for the printed page
+  only.
+
+  This exists because the on-screen totals live in the posting strip, which is
+  `.no-print`: the strip is a workspace control with a Post button and a general
+  ledger preview on it, and none of that belongs on a bill. Hiding it would
+  otherwise take the total with it, and a printed invoice with lines and no
+  total is worse than no invoice.
+
+  Every figure is the same one the ReportLab renderer prints — read off the
+  document header, which is the display convenience its own module says it is,
+  and which CLAUDE.md §6 allows precisely here: on the document that owns it.
+  Nothing is computed in this template.
+{% endcomment %}
+
+<div class="print-only print-keep-together mt-4">
+  <table class="ml-auto w-1/2 text-sm">
+    <tbody>
+      <tr>
+        <td class="py-0.5 text-right">Subtotal</td>
+        <td class="amount py-0.5">{{ document.subtotal_paisa|money }}</td>
+      </tr>
+      {% if document.discount_paisa %}
+        <tr>
+          <td class="py-0.5 text-right">Discount</td>
+          <td class="amount py-0.5">-{{ document.discount_paisa|money }}</td>
+        </tr>
+      {% endif %}
+      {% if document.tax_paisa %}
+        <tr>
+          <td class="py-0.5 text-right">Sales tax</td>
+          <td class="amount py-0.5">{{ document.tax_paisa|money }}</td>
+        </tr>
+      {% endif %}
+      <tr class="border-y-2 border-gray-800">
+        <td class="py-1 text-right font-semibold">Total</td>
+        <td class="amount py-1 font-semibold">{{ document.total_paisa|money }}</td>
+      </tr>
+    </tbody>
+  </table>
+
+  {# Lakh and crore, not million — apps/core/words.py. #}
+  <p class="mt-2 border border-gray-300 bg-gray-50 px-2 py-1 text-sm">
+    <strong>Amount in words:</strong> {{ document.total_paisa|words }}
+  </p>
+
+  {% if document.remarks %}
+    <p class="mt-2 text-xs text-gray-600">{{ document.remarks }}</p>
+  {% endif %}
+  {% if company.invoice_terms %}
+    <p class="mt-1 text-xs text-gray-600">{{ company.invoice_terms|linebreaksbr }}</p>
+  {% endif %}
+
+  <div class="mt-12 flex justify-between text-xs">
+    <span class="border-t border-gray-800 pt-1">{{ signature_left|default:"Received in good order" }}</span>
+    <span class="border-t border-gray-800 pt-1">For {{ company.name|default:"the company" }}</span>
+  </div>
+
+  {% if company.footer_text %}
+    <p class="mt-4 border-t border-gray-300 pt-1 text-center text-xs text-gray-600">
+      {{ company.footer_text }}
+    </p>
+  {% endif %}
+</div>

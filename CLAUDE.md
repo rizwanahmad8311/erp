@@ -199,6 +199,29 @@ unwind. If a requirement seems to need one of these rules broken, stop and ask
 - `tests/test_lifecycle.py::TestMasterHistory` fails the build if either rule is
   broken.
 
+## 6b. Printing: ReportLab, and two paths to paper.
+
+- PDFs are drawn by **ReportLab** in `apps/reports/pdf/`. **Never WeasyPrint,
+  xhtml2pdf, wkhtmltopdf or headless Chrome** — each needs a system library or a
+  binary that turns the six-line install in §8 into a support call on a machine
+  with no internet and nobody sitting at it. ReportLab is a pure-Python wheel and
+  its one compiled dependency (Pillow) ships a prebuilt Windows wheel.
+- **There are two output paths and they are not redundant.** `@media print` in
+  `static/src/css/app.css` is the fast one — Ctrl+P on the screen, no PDF step —
+  and it is what the counter uses all day. `?format=pdf` is the file that gets
+  emailed, filed or handed over. A screen that prints badly is a bug even when
+  its PDF is perfect.
+- Because the two are written twice, they read the **same** `CompanyProfile` row
+  and the same `|words` filter, so the details cannot disagree even though the
+  layouts can.
+- **Never generate a PDF inside a posting transaction** (§4). Rendering is I/O
+  and the SQLite write lock is taken at `BEGIN`.
+- Amounts print through `apps.core.words.amount_in_words`, which uses **lakh and
+  crore**. "Ten Million" on a bill in Karachi is a bill that gets queried.
+- The company logo is **uploaded and stored under `MEDIA_ROOT`, never
+  hotlinked** (§7). A logo that cannot be read is skipped with a log line — an
+  invoice must always print.
+
 ## 7. No CDN references. Anywhere.
 
 - **The production machine has no internet.** A single `<script src="https://…">`
@@ -255,6 +278,8 @@ erp/
     sales/             sales orders, invoices, deliveries, returns
     payments/          receipts, payments, recovery
     reports/           read-only aggregation over the ledger
+      catalog/         the reports themselves — accounting, stock, sales
+      pdf/             ReportLab renderers — invoices, receipts, statements
     backup/            SQLite backup/restore for the Windows box
   static/src/          authored + vendored sources (Tailwind input, JS, fonts)
   static/dist/         compiled output — COMMITTED
@@ -262,7 +287,53 @@ erp/
   tests/
     testapp/           concrete models for testing the abstract bases (pytest only)
   data/                erp.sqlite3 lives here (git-ignored)
+  media/               the uploaded company logo (git-ignored)
 ```
+
+### What apps/reports provides
+
+A report is **a column list and a function**, and nothing else — no view, no
+template, no URL entry. Those are shared once, which is what makes the HTML
+table, the CSV and the PDF the same columns in the same order by construction
+rather than by three people remembering.
+
+| Module | Contents |
+| ------ | -------- |
+| `columns.py` | `Column`, `ReportRow`, and the two renderings of a cell: `display` for a human, `export` for a spreadsheet |
+| `criteria.py` | `Criteria`, `ReportFilterForm` — the filter bar every report shares, including the cancelled toggle |
+| `registry.py` | `Report`, `ReportResult`, `register` — the catalogue, built at import time |
+| `ledger.py` | the aggregation primitives: `account_totals`, `party_totals`, `voucher_totals`, `stock_positions`, `voucher_targets`. **The only module here that touches `LedgerEntry`** |
+| `framework.py` | `ReportView` — one view, three formats, pagination, the index |
+| `exports.py` | the CSV writer, with the formula-injection guard |
+| `catalog/` | the eighteen reports, grouped by which table they read |
+| `pdf/reports.py` | the generic report PDF: any registered report, landscape-aware |
+
+Adding a report means writing one `build(criteria) -> ReportResult` and calling
+`register`. It appears on the index, gets its own URL, and answers `?format=csv`
+and `?format=pdf` without anything else being touched.
+
+Two invariants the tests fail the build over:
+
+- **the Trial Balance sums to zero** over a dataset containing posted, cancelled
+  and amended documents, and prints the difference in the alarm colour when it
+  does not (`tests/test_reports.py::TestTrialBalance`);
+- **"recovery" means one thing** — `ledger.RECOVERY_VOUCHERS`, which nets a
+  bounced cheque off in the period it bounced. A bounce does not reverse its
+  receipt (§5), so a figure summed over payments alone counts money that never
+  arrived.
+
+### What apps/reports/pdf provides
+
+| Module | Contents |
+| ------ | -------- |
+| `documents.py` | `sales_invoice_pdf`, `purchase_invoice_pdf` |
+| `receipts.py` | `payment_receipt_pdf` — A4/A5 sheet, or an 80mm/58mm till roll |
+| `ledgers.py` | `client_ledger_pdf`, `route_day_sheet_pdf` |
+| `base.py` | `PDFDocument` (repeating letterhead, numbered footer), `ThermalDocument` |
+| `blocks.py` | letterhead, line table, totals, amount in words, signature |
+| `canvas.py` | `NumberedCanvas` — "page x of y" and the CANCELLED watermark |
+| `fonts.py` | registers vendored TTFs from `static/src/fonts/`; falls back to built-ins |
+| `theme.py` | paper sizes, the palette converted from the CSS tokens, paragraph styles |
 
 ### What apps/core provides
 
@@ -275,10 +346,11 @@ erp/
 | `enums.py` | `DocumentStatus`, `ALLOWED_STATUS_TRANSITIONS` |
 | `exceptions.py` | `DocumentImmutable`, `IllegalTransition`, `AppendOnlyViolation`, `DocumentHasDependents`, `PaymentAllocated`, `MoneyError`, `SequenceError` |
 | `lifecycle.py` | `Dependent`, `TimelineStep`, `document_timeline`, `payment_allocations`, `payment_dependents` |
+| `words.py` | `amount_in_words`, `number_in_words` (+ Urdu) — lakh and crore, never million |
 | `reporting.py` | `DocumentQuerySet` (`live` / `cancelled` / `for_report`), `include_cancelled_from` |
 | `forms.py` | `CancelForm`, `MIN_CANCEL_REASON` |
 | `views.py` | `cancel_view` — the cancel screen every app shares |
-| `templatetags/core_tags.py` | `\|money`, `\|qty`, `\|doc_status` |
+| `templatetags/core_tags.py` | `\|money`, `\|qty`, `\|words`, `\|doc_status` |
 
 ## Conventions
 

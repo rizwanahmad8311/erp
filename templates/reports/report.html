@@ -1,0 +1,117 @@
+{% extends "base.html" %}
+{% load core_tags %}
+
+{% comment %}
+  One template, eighteen reports.
+
+  Everything on this page is driven by the Report object the view resolved: the
+  columns, the filter bar, the notes and which output links to offer. Adding a
+  report adds nothing here — see apps/reports/registry.py.
+
+  Two paths to paper, and they are not redundant (CLAUDE.md §6b):
+
+  * **Print** — the browser's own dialogue. @media print strips the bar, the
+    pager and the buttons and leaves the letterhead and the grid. No round trip,
+    no PDF step. This is the fast path.
+  * **PDF** — ReportLab, for the copy that gets emailed, filed or handed over.
+
+  And a third that is not paper at all: **CSV**, for the accountant who is going
+  to pivot it. Same columns, same order, same figures.
+{% endcomment %}
+
+{% block title %}{{ report.title }}{% endblock %}
+
+{% block content %}
+  {% comment %}
+    A report the PDF prints landscape does not fit across A4 portrait in the
+    browser either. `.print-landscape` selects a named @page — see the print
+    block in static/src/css/app.css. Browsers that do not support named pages
+    fall back to portrait, which is what would have happened anyway.
+  {% endcomment %}
+  <div {% if report.landscape %}class="print-landscape"{% endif %}>
+
+  {% include "reports/partials/print_header.html" %}
+
+  <div class="mb-3 flex flex-wrap items-baseline justify-between gap-2">
+    <div>
+      <h1 class="text-xl font-semibold">
+        <a href="{% url 'reports:index' %}" class="no-print text-gray-400 hover:underline">Reports</a>
+        <span class="no-print text-gray-300">/</span>
+        {{ report.title }}
+      </h1>
+      <p class="text-sm text-gray-600">
+        {{ report.description }}
+        {% if result.subtitle %}<span class="no-print">· {{ result.subtitle }}</span>{% endif %}
+      </p>
+    </div>
+
+    <span class="no-print flex items-center gap-3 text-sm">
+      <button type="button" onclick="window.print()"
+              class="rounded border border-gray-300 px-2 py-1 text-sm"
+              title="Print this page — no PDF step">
+        Print
+      </button>
+      <a href="{{ csv_url }}" class="text-brand-700 underline" title="The same columns, for a spreadsheet">CSV</a>
+      <a href="{{ pdf_url }}" class="text-brand-700 underline" title="Open the PDF">PDF</a>
+      <a href="{{ pdf_download_url }}" class="text-brand-700 underline"
+         title="Save the PDF, for emailing or filing">Save</a>
+    </span>
+  </div>
+
+  {% include "reports/partials/filter_bar.html" %}
+
+  {% if period_was_swapped %}
+    <p class="no-print mb-3 rounded border border-draft/30 bg-draft/10 px-3 py-2 text-sm">
+      The two dates were the wrong way round, so the report was run from
+      {{ criteria.date_from|date:"d M Y" }} to {{ criteria.date_to|date:"d M Y" }}.
+    </p>
+  {% endif %}
+
+  {% if prompt %}
+    {# A required filter has not been chosen. An empty grid would read as #}
+    {# "nothing here", which is a different answer to "nobody has asked yet". #}
+    <p class="rounded border border-gray-300 bg-gray-50 px-4 py-6 text-center text-sm text-gray-600">
+      {{ prompt }}
+    </p>
+  {% else %}
+    {% if result.alarm %}
+      {# Never suppressed. A report that hid its own difference would be worse #}
+      {# than no report — see apps/reports/catalog/accounting.py. #}
+      <p class="print-keep-together mb-3 rounded border border-cancelled bg-cancelled/10 px-3 py-2 text-sm font-medium text-cancelled">
+        {{ result.alarm }}
+      </p>
+    {% endif %}
+
+    {% include "reports/partials/table.html" %}
+
+    <div class="mt-4 flex flex-wrap items-baseline justify-between gap-3 text-xs text-gray-500">
+      <div class="max-w-2xl">
+        {% for note in result.notes %}
+          <p class="mt-1">{{ note }}</p>
+        {% endfor %}
+        <p class="mt-2">
+          {{ result.row_count }} row{{ result.row_count|pluralize }}.
+          {% if total_cells %}The totals are of the whole report, not of this page.{% endif %}
+          Every figure is aggregated from the ledger, never read off a document (CLAUDE.md §6).
+        </p>
+      </div>
+
+      {% if page_obj.paginator.num_pages > 1 %}
+        <nav class="no-print flex items-center gap-2 text-sm">
+          {% if page_obj.has_previous %}
+            <a href="?{{ form.querystring }}&amp;page={{ page_obj.previous_page_number }}"
+               class="rounded border border-gray-300 px-2 py-1">Previous</a>
+          {% endif %}
+          <span class="text-gray-600">
+            Page {{ page_obj.number }} of {{ page_obj.paginator.num_pages }}
+          </span>
+          {% if page_obj.has_next %}
+            <a href="?{{ form.querystring }}&amp;page={{ page_obj.next_page_number }}"
+               class="rounded border border-gray-300 px-2 py-1">Next</a>
+          {% endif %}
+        </nav>
+      {% endif %}
+    </div>
+  {% endif %}
+  </div>
+{% endblock %}

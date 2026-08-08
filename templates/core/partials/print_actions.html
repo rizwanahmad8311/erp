@@ -1,0 +1,27 @@
+{% comment %}
+  The two ways off the screen and onto paper, in the order they should be used.
+
+  **Print** first, and it is a button rather than a link: the browser's own
+  print dialogue, driven by @media print in static/src/css/app.css. No round
+  trip, no PDF, no download — this is the path the counter uses a hundred times
+  a day and it should be the obvious one.
+
+  **PDF** second, for the copy that has to be emailed, filed or handed over.
+  It streams from apps/reports/pdf/ and opens in the browser's viewer;
+  `&download=1` saves it instead.
+
+  The print button is the one piece of JavaScript on this partial and it does
+  exactly one thing. It is inline because it is four characters long and adding
+  a file to static/dist for `window.print()` would be worse.
+{% endcomment %}
+
+<span class="no-print flex items-center gap-3 text-sm">
+  <button type="button" onclick="window.print()"
+          class="rounded border border-gray-300 px-2 py-1 text-sm"
+          title="Print this page — no PDF step">
+    Print
+  </button>
+  <a href="?format=pdf" class="text-brand-700 underline" title="Open the PDF">PDF</a>
+  <a href="?format=pdf&amp;download=1" class="text-brand-700 underline"
+     title="Save the PDF, for emailing or filing">Save</a>
+</span>

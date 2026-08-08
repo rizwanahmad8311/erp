@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+
+{% comment %}
+  Every report, grouped the way the office talks about the work rather than by
+  which Django app the data was entered in. The list is built from the registry
+  (apps/reports/registry.py) — nothing here is maintained by hand, so a report
+  that has been written and not registered is visibly missing rather than
+  quietly unreachable.
+{% endcomment %}
+
+{% block title %}Reports{% endblock %}
+
+{% block content %}
+  <div class="mb-4">
+    <h1 class="text-xl font-semibold">Reports</h1>
+    <p class="text-sm text-gray-600">
+      Every figure below is aggregated from the ledger and the stock ledger — never
+      read off a document header (CLAUDE.md §6). Each report runs on screen, as a
+      CSV for a spreadsheet, or as a PDF for the file.
+    </p>
+  </div>
+
+  <div class="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+    {% for group, group_reports in reports %}
+      <section>
+        <h2 class="mb-2 border-b border-gray-200 pb-1 text-xs font-semibold uppercase tracking-wide text-gray-600">
+          {{ group }}
+        </h2>
+        <ul>
+          {% for report in group_reports %}
+            <li class="border-b border-gray-100 py-2">
+              <a href="{% url 'reports:report' slug=report.slug %}"
+                 class="text-sm font-medium text-brand-700 underline">{{ report.title }}</a>
+              <p class="mt-0.5 text-xs text-gray-500">{{ report.description }}</p>
+            </li>
+          {% endfor %}
+        </ul>
+      </section>
+    {% empty %}
+      <p class="text-sm text-gray-500">No report is registered.</p>
+    {% endfor %}
+  </div>
+
+  <p class="mt-6 text-xs text-gray-500">
+    Cancelled documents are left out of every figure by default and are never deleted.
+    The toggle on each report's filter bar brings them back with their reversing entries,
+    which net to zero.
+  </p>
+{% endblock %}

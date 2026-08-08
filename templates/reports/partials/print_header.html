@@ -1,0 +1,42 @@
+{% comment %}
+  The letterhead for a report printed straight from the browser — the fast path.
+
+  Hidden on screen, revealed by @media print in static/src/css/app.css. It is
+  the HTML twin of what ReportLab draws in apps/reports/pdf/blocks.py, and the
+  two are written separately on purpose — see apps/reports/pdf/__init__.py for
+  why no HTML-to-PDF converter is installable on the production machine.
+
+  They read the same CompanyProfile row and the same report title and subtitle,
+  so a report printed from the screen and the same report saved as a PDF say the
+  same thing at the top even though the layouts differ.
+
+  Needs `company` (apps.reports.context_processors), `report` and `result`.
+{% endcomment %}
+
+<div class="print-only print-header mb-4 border-b-2 border-gray-800 pb-2">
+  <div class="flex items-start justify-between gap-4">
+    <div>
+      {% if company.logo %}
+        {# From MEDIA_ROOT on this machine. Never a remote URL — CLAUDE.md §7. #}
+        <img src="{{ company.logo.url }}" alt="" style="max-height: 16mm; max-width: 38mm;">
+      {% endif %}
+      <div class="text-base font-semibold">{{ company.name|default:"—" }}</div>
+      {% for line in company.address_lines %}
+        <div class="text-xs text-gray-600">{{ line }}</div>
+      {% endfor %}
+      {% if company.contact_line %}
+        <div class="text-xs text-gray-600">{{ company.contact_line }}</div>
+      {% endif %}
+      {% if company.tax_line %}
+        <div class="text-xs text-gray-600">{{ company.tax_line }}</div>
+      {% endif %}
+    </div>
+    <div class="text-right">
+      <div class="text-sm font-semibold uppercase tracking-wide">{{ report.title }}</div>
+      <div class="text-xs text-gray-600">{{ result.subtitle }}</div>
+      {% if criteria.include_cancelled %}
+        <div class="text-xs text-cancelled">Includes cancelled documents</div>
+      {% endif %}
+    </div>
+  </div>
+</div>

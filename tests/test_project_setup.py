@@ -386,13 +386,36 @@ class TestAppRegistry:
         for banned in ("cheque_status", "allocated_paisa", "outstanding_paisa", "is_bounced"):
             assert banned not in columns, f"Payment.{banned} must be derived, not stored"
 
-    def test_no_other_domain_models_exist_yet(self):
-        """core may hold infrastructure (DocumentSequence); the remaining domain
-        apps hold nothing at all until their models are designed."""
+    def test_reports_holds_no_figures_of_its_own(self):
+        """apps.reports aggregates the ledger; it stores nothing derived from it.
+
+        ``CompanyProfile`` is the one model it owns and it is not a figure: it
+        is the name, address and tax number printed at the top of a page, which
+        live nowhere else. A second model here would almost certainly be a
+        cached total, which CLAUDE.md §6 forbids.
+        """
         from django.apps import apps as django_apps
 
-        domain_labels = {"reports", "backup"}
-        models = [m for m in django_apps.get_models() if m._meta.app_label in domain_labels]
+        reports_models = {m.__name__ for m in django_apps.get_app_config("reports").get_models()}
+        assert reports_models == {"CompanyProfile"}, (
+            f"unexpected reports models: {sorted(reports_models)}"
+        )
+
+    def test_the_company_profile_caches_no_ledger_figure(self):
+        from apps.reports.models import CompanyProfile
+
+        banned = ("balance", "outstanding", "stock", "total", "paisa")
+        offenders = [
+            field.name
+            for field in CompanyProfile._meta.get_fields()
+            if getattr(field, "attname", None) and any(n in field.name for n in banned)
+        ]
+        assert not offenders, f"CompanyProfile must hold no figures: {offenders}"
+
+    def test_backup_holds_no_models_yet(self):
+        from django.apps import apps as django_apps
+
+        models = [m for m in django_apps.get_models() if m._meta.app_label == "backup"]
         assert models == [], f"Unexpected models: {models}"
 
     def test_core_holds_only_infrastructure(self):

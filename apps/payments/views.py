@@ -39,6 +39,8 @@ from apps.core.exceptions import CoreError
 from apps.core.reporting import include_cancelled_from
 from apps.core.views import cancel_view
 from apps.masters.models import Client
+from apps.reports.pdf import payment_receipt_pdf
+from apps.reports.responses import pdf_filename, pdf_response, wants_download, wants_pdf
 
 from . import recovery, services
 from .enums import PaymentDirection, PaymentMode
@@ -406,9 +408,21 @@ def payment_create(request):
 @login_required
 @require_GET
 def payment_detail(request, pk: int):
-    """One payment: what it did to the books, what it settles, where the cheque is."""
+    """One payment — or the receipt for it, with ``?format=pdf``.
+
+    ``?layout=80mm`` picks the till roll for one job; without it the machine's
+    own ``RECEIPT_LAYOUT`` setting decides, which is how the counter PC prints
+    thermal and the back office prints A5 without either of them being told.
+    """
     payment = _payment(pk)
     services.attach_parties([payment])
+
+    if wants_pdf(request):
+        return pdf_response(
+            payment_receipt_pdf(payment, layout=request.GET.get("layout")),
+            pdf_filename(payment.code, payment.party_name),
+            download=wants_download(request),
+        )
 
     # The shop's open bills, so the money can be applied without going back to
     # the sheet. Only for a client: a supplier payment is allocated from the

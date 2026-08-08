@@ -17,8 +17,9 @@
 
 {% block content %}
   {% include "core/partials/cancelled_watermark.html" %}
+  {% include "core/partials/print_header.html" with print_title=kind.title %}
 
-  <div class="mb-4 flex flex-wrap items-baseline justify-between gap-2">
+  <div class="no-print mb-4 flex flex-wrap items-baseline justify-between gap-2">
     <div>
       <h1 class="text-xl font-semibold">
         {{ kind.title }} <span class="font-mono">{{ document.code }}</span>
@@ -36,12 +37,13 @@
     </div>
     <div class="flex items-center gap-3">
       {{ document.status|doc_status }}
+      {% include "core/partials/print_actions.html" %}
       <a href="{% url 'purchasing:list' slug=kind.slug %}"
          class="text-sm text-brand-700 underline">All {{ kind.title|lower }}s</a>
     </div>
   </div>
 
-  {% include "core/partials/timeline.html" %}
+  <div class="no-print">{% include "core/partials/timeline.html" %}</div>
 
   {% comment %} One swap target for the lines, the entry row and the posting strip, so the
      totals can never be a step behind the lines they are the total of. {% endcomment %}
