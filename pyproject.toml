@@ -1,0 +1,80 @@
+[project]
+name = "erp"
+version = "0.1.0"
+description = "Distribution management system — inventory, sales, purchase, ledger, invoicing, recovery, routes"
+requires-python = ">=3.12"
+
+# Every dependency here is a pure-Python wheel. Nothing needs a compiler, a
+# system library, or node on the Windows production machine.
+dependencies = [
+    "django>=5.1,<6.0",
+    "django-unfold>=0.40",
+    "django-environ>=0.11",
+    "whitenoise>=6.7",
+    "waitress>=3.0",
+    "reportlab>=4.2",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.3",
+    "pytest-django>=4.9",
+    "model-bakery>=1.19",
+    "ruff>=0.6",
+]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["config", "apps"]
+
+
+# ---------------------------------------------------------------------------
+# ruff
+# ---------------------------------------------------------------------------
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+extend-exclude = ["*/migrations/*", "static", "staticfiles", "data"]
+
+[tool.ruff.lint]
+select = [
+    "E",    # pycodestyle
+    "F",    # pyflakes
+    "I",    # isort
+    "UP",   # pyupgrade
+    "B",    # bugbear
+    "DJ",   # flake8-django
+    "C4",   # comprehensions
+    "SIM",  # simplify
+    "RUF",
+]
+ignore = [
+    "E501",    # line length is handled by the formatter
+    "RUF012",  # Django class attrs are conventionally plain mutables
+]
+
+[tool.ruff.lint.per-file-ignores]
+"config/settings/*.py" = ["F403", "F405"]  # star-imports are the settings idiom
+"tests/*" = ["S101"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["apps", "config"]
+
+[tool.ruff.format]
+quote-style = "double"
+
+
+# ---------------------------------------------------------------------------
+# pytest
+# ---------------------------------------------------------------------------
+[tool.pytest.ini_options]
+DJANGO_SETTINGS_MODULE = "config.settings.dev"
+python_files = ["test_*.py", "*_test.py"]
+testpaths = ["tests", "apps"]
+addopts = "--reuse-db --strict-markers -ra"
+markers = [
+    "posting: exercises a ledger/stock posting service inside a transaction",
+]

@@ -1,0 +1,53 @@
+# --- secrets -------------------------------------------------------------
+.env
+*.pem
+
+# --- database ------------------------------------------------------------
+# WAL mode produces -wal and -shm siblings; none of them belong in git.
+data/*.sqlite3
+data/*.sqlite3-wal
+data/*.sqlite3-shm
+data/backups/
+*.db
+
+# --- python --------------------------------------------------------------
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+.eggs/
+# Anchored to the repo root on purpose: a bare `dist/` would also match
+# static/dist, which MUST stay committed.
+/build/
+/dist/
+
+# --- test / lint caches --------------------------------------------------
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# --- runtime -------------------------------------------------------------
+logs/
+media/
+# collectstatic output; regenerated on every deploy
+staticfiles/
+
+# --- tooling -------------------------------------------------------------
+# The Tailwind standalone binary is fetched per-machine in dev, never committed.
+bin/tailwindcss
+bin/tailwindcss.exe
+
+# --- editors / os --------------------------------------------------------
+.DS_Store
+.idea/
+.vscode/
+*.swp
+
+# -------------------------------------------------------------------------
+# NOT ignored, deliberately: static/dist/
+# Compiled CSS/JS is committed so the Windows box never needs node or a build
+# step. Do not add static/dist here. See CLAUDE.md.
+# -------------------------------------------------------------------------

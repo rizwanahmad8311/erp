@@ -1,0 +1,18 @@
+# Production dependencies for the Windows PC.
+#
+#   py -m venv .venv
+#   .venv\Scripts\activate
+#   pip install -r requirements.txt
+#
+# All pure-Python wheels: no compiler, no system libraries, no node.
+# For an offline install, mirror these wheels once with
+#   pip download -r requirements.txt -d wheels --platform win_amd64 \
+#       --only-binary=:all: --python-version 312
+# and on the target machine: pip install --no-index --find-links=wheels -r requirements.txt
+
+Django>=5.1,<6.0
+django-unfold>=0.40
+django-environ>=0.11
+whitenoise>=6.7
+waitress>=3.0
+reportlab>=4.2

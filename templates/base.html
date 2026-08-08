@@ -1,0 +1,33 @@
+{% load static %}<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{% block title %}Distribution ERP{% endblock %}</title>
+
+    {# Every asset is served from static/dist by WhiteNoise. No CDN, ever —
+       the production PC has no internet. See CLAUDE.md. #}
+    <link rel="stylesheet" href="{% static 'app.css' %}">
+    {% block extra_css %}{% endblock %}
+  </head>
+  <body class="bg-white text-gray-900 antialiased">
+    <header class="no-print border-b border-gray-200">
+      {% block header %}{% endblock %}
+    </header>
+
+    <main class="mx-auto max-w-7xl px-4 py-6">
+      {% if messages %}
+        <ul class="no-print mb-4">
+          {% for message in messages %}
+            <li class="rounded border px-3 py-2 text-sm">{{ message }}</li>
+          {% endfor %}
+        </ul>
+      {% endif %}
+
+      {% block content %}{% endblock %}
+    </main>
+
+    <script src="{% static 'js/app.js' %}"></script>
+    {% block extra_js %}{% endblock %}
+  </body>
+</html>

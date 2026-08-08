@@ -1,0 +1,7 @@
+# Development-only. Never installed on the Windows production machine.
+-r requirements.txt
+
+pytest>=8.3
+pytest-django>=4.9
+model-bakery>=1.19
+ruff>=0.6

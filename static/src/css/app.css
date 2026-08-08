@@ -1,0 +1,53 @@
+/* Tailwind input. Compile with `make css` -> static/dist/app.css (committed).
+ *
+ * There is no npm and no CDN. This is built by the Tailwind standalone binary
+ * in the dev container only; production serves the committed compiled file.
+ */
+
+@import "tailwindcss";
+
+/* Template and Python sources Tailwind scans for class names. Paths are
+ * relative to this file: static/src/css/ -> erp/ */
+@source "../../../templates";
+@source "../../../apps";
+
+@theme {
+  /* Print-first palette: invoices and ledgers are read on paper as often as
+   * on screen, so contrast is tuned for a mono laser printer. */
+  --color-brand-50: oklch(0.97 0.02 250);
+  --color-brand-500: oklch(0.55 0.16 250);
+  --color-brand-700: oklch(0.42 0.14 250);
+
+  --color-posted: oklch(0.55 0.14 150);
+  --color-draft: oklch(0.65 0.12 85);
+  --color-cancelled: oklch(0.55 0.16 25);
+
+  /* Tabular figures matter: amount columns must align digit-for-digit. */
+  --font-mono: ui-monospace, "SFMono-Regular", "Consolas", monospace;
+}
+
+/* Vendored webfonts go here once dropped into static/src/fonts/.
+ * Never an external @import or <link> to a font CDN.
+ *
+ * @font-face {
+ *   font-family: "Inter";
+ *   src: url("../fonts/inter-regular.woff2") format("woff2");
+ *   font-weight: 400;
+ *   font-display: swap;
+ * }
+ */
+
+@layer components {
+  /* Money and quantity columns: right-aligned, fixed-width digits. */
+  .amount {
+    font-variant-numeric: tabular-nums;
+    text-align: right;
+    font-family: var(--font-mono);
+  }
+}
+
+@media print {
+  .no-print {
+    display: none !important;
+  }
+}
