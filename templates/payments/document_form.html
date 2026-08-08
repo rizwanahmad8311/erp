@@ -1,0 +1,96 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% comment %}
+  The payment header, on its own screen, because the document code is allocated
+  when this is submitted — opening a form and changing your mind must not burn a
+  number out of the sequence (CLAUDE.md §5).
+
+  The client is chosen through an autocomplete on code, name or phone, and each
+  hit shows what they owe, because that is the next question.
+{% endcomment %}
+
+{% block title %}New payment{% endblock %}
+
+{% block extra_js %}
+  <script src="{% static 'js/htmx-2.0.4.min.js' %}"></script>
+  <script src="{% static 'js/entry-grid.js' %}"></script>
+{% endblock %}
+
+{% block content %}
+  <h1 class="mb-4 text-xl font-semibold">New payment</h1>
+
+  <form method="post" id="header-form" class="max-w-2xl">
+    {% csrf_token %}
+
+    {% if form.non_field_errors %}
+      <p class="mb-3 rounded border border-cancelled/40 bg-cancelled/10 px-2 py-1 text-sm text-cancelled">
+        {{ form.non_field_errors|join:" " }}
+      </p>
+    {% endif %}
+
+    {# ------------------------------------------- client, by autocomplete #}
+    <div class="relative mb-3">
+      <label class="block text-xs uppercase tracking-wide text-gray-600" for="client-search">
+        Client — search by code, name or phone
+      </label>
+      <input type="search"
+             id="client-search"
+             name="q"
+             tabindex="10"
+             autocomplete="off"
+             data-autofocus
+             data-results-for="client-results"
+             placeholder="Type a code, a shop name or a phone number…"
+             class="w-full rounded border border-gray-300 px-2 py-1.5 text-sm focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500"
+             hx-get="{% url 'payments:client-search' %}"
+             hx-trigger="keyup changed delay:150ms, search"
+             hx-target="#client-results"
+             hx-swap="innerHTML">
+
+      {# The chosen row. Hidden: the operator picks a real client rather than
+         typing something the server has to guess at. #}
+      <div class="hidden">{{ form.client }}</div>
+
+      <div id="client-results" data-results
+           class="absolute z-10 mt-0.5 w-full overflow-hidden rounded border border-gray-300 bg-white shadow-sm empty:hidden"></div>
+
+      {% if form.client.errors %}
+        <span class="block text-xs text-cancelled">{{ form.client.errors|join:" " }}</span>
+      {% endif %}
+    </div>
+
+    <div class="grid gap-3 md:grid-cols-2">
+      {% for field in form %}
+        {% if field.name != "client" %}
+          <label class="block text-xs uppercase tracking-wide text-gray-600
+                        {% if field.name == 'remarks' %}md:col-span-2{% endif %}">
+            {{ field.label }}
+            {{ field }}
+            {% if field.help_text %}
+              <span class="block normal-case text-xs text-gray-500">{{ field.help_text }}</span>
+            {% endif %}
+            {% if field.errors %}
+              <span class="block normal-case text-xs text-cancelled">{{ field.errors|join:" " }}</span>
+            {% endif %}
+          </label>
+        {% endif %}
+      {% endfor %}
+    </div>
+
+    <p class="mt-2 text-xs text-gray-500">
+      Money <strong>received</strong> is against the client above; money <strong>paid</strong>
+      is against the supplier. A cheque needs its number and the date written on it —
+      it posts to Cheques in Hand and only reaches the bank when it clears.
+    </p>
+
+    <div class="mt-4 flex items-center gap-2">
+      <button type="submit"
+              class="rounded bg-brand-700 px-4 py-2 text-sm font-semibold text-white">
+        Create draft
+      </button>
+      <a href="{% url 'payments:list' %}"
+         class="rounded border border-gray-300 px-3 py-2 text-sm">Cancel</a>
+    </div>
+  </form>
+{% endblock %}

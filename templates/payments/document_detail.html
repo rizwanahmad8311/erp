@@ -1,0 +1,297 @@
+{% extends "base.html" %}
+{% load core_tags %}
+
+{% comment %}
+  One payment: what it did to the books, which bills it settles, and — if it was
+  a cheque — where that cheque has got to.
+
+  The general ledger panel is built by services.build_payment_gl, the same
+  function post_payment calls. A preview computed any other way is a preview
+  that will eventually disagree with what actually landed in the ledger.
+{% endcomment %}
+
+{% block title %}{{ payment.code }}{% endblock %}
+
+{% block content %}
+  <div class="mb-3 flex flex-wrap items-baseline justify-between gap-2">
+    <div>
+      <h1 class="text-xl font-semibold">
+        {{ payment.get_direction_display }} <span class="font-mono">{{ payment.code }}</span>
+      </h1>
+      <p class="text-sm text-gray-600">
+        {{ payment.party_name }}
+        &middot; {{ payment.get_mode_display }}
+        &middot; {{ payment.posting_date|date:"d M Y" }}
+        {% if payment.route %}&middot; {{ payment.route.code }}{% endif %}
+        {% if payment.collected_by %}&middot; collected by {{ payment.collected_by.name }}{% endif %}
+      </p>
+    </div>
+    <div class="flex items-center gap-3">
+      {{ payment.status|doc_status }}
+      <a href="{% url 'payments:list' %}" class="text-sm text-brand-700 underline">All payments</a>
+      <a href="{% url 'payments:recovery' %}" class="text-sm text-brand-700 underline">Recovery</a>
+    </div>
+  </div>
+
+  <div class="grid gap-4 lg:grid-cols-3">
+
+    {# ------------------------------------------------------------ the money #}
+    <div>
+      <h2 class="mb-1 text-xs font-semibold uppercase tracking-wide text-gray-600">Amount</h2>
+      <table class="w-full text-sm">
+        <tbody>
+          <tr>
+            <td class="py-0.5 text-gray-600">Received</td>
+            <td class="amount py-0.5 text-base font-semibold">{{ payment.amount_paisa|money }}</td>
+          </tr>
+          <tr>
+            <td class="py-0.5 text-gray-600">Allocated</td>
+            <td class="amount py-0.5">{{ payment.allocated_paisa|money }}</td>
+          </tr>
+          <tr class="border-t border-gray-800">
+            <td class="py-1 font-semibold">On account</td>
+            <td class="amount py-1 font-semibold {% if payment.unallocated_paisa %}text-posted{% endif %}">
+              {{ payment.unallocated_paisa|money }}
+            </td>
+          </tr>
+        </tbody>
+      </table>
+      {% if payment.unallocated_paisa %}
+        <p class="mt-1 text-xs text-gray-500">
+          Money that settles no particular bill yet. Not an error — it shows on the shop's
+          recovery row until somebody applies it.
+        </p>
+      {% endif %}
+      {% if payment.remarks %}
+        <p class="mt-2 text-sm text-gray-600">{{ payment.remarks }}</p>
+      {% endif %}
+    </div>
+
+    {# ----------------------------------------------------------- the cheque #}
+    <div>
+      {% if cheque %}
+        <h2 class="mb-1 text-xs font-semibold uppercase tracking-wide text-gray-600">
+          Cheque {{ payment.cheque_no }}
+        </h2>
+        <table class="w-full text-sm">
+          <tbody>
+            <tr>
+              <td class="py-0.5 text-gray-600">Dated</td>
+              <td class="py-0.5 text-right">{{ payment.cheque_date|date:"d M Y" }}</td>
+            </tr>
+            {% if payment.bank_name %}
+              <tr>
+                <td class="py-0.5 text-gray-600">Bank</td>
+                <td class="py-0.5 text-right">{{ payment.bank_name }}</td>
+              </tr>
+            {% endif %}
+            <tr class="border-t border-gray-300">
+              <td class="py-0.5 text-gray-600">Status</td>
+              <td class="py-0.5 text-right font-medium
+                         {% if cheque.is_bounced %}text-cancelled{% elif cheque.is_cleared %}text-posted{% endif %}">
+                {{ cheque.label }}
+              </td>
+            </tr>
+            {% if cheque.event %}
+              <tr>
+                <td class="py-0.5 text-xs text-gray-500">{{ cheque.event.code }}</td>
+                <td class="py-0.5 text-right text-xs text-gray-500">
+                  {{ cheque.event.posting_date|date:"d M Y" }}
+                </td>
+              </tr>
+            {% endif %}
+          </tbody>
+        </table>
+
+        {% if cheque.may_settle %}
+          <div class="mt-2 rounded border border-gray-300 p-2">
+            <p class="mb-1 text-xs text-gray-500">
+              Until the bank says otherwise this is a piece of paper in a drawer, sitting in
+              Cheques in Hand rather than in the bank.
+            </p>
+            <div class="flex flex-wrap items-end gap-2">
+              <form method="post" action="{% url 'payments:cheque-clear' pk=payment.pk %}"
+                    class="flex items-end gap-2">
+                {% csrf_token %}
+                {% for field in settlement_form %}
+                  <label class="block text-xs uppercase tracking-wide text-gray-600">
+                    {{ field.label }}{{ field }}
+                  </label>
+                {% endfor %}
+                <button type="submit"
+                        class="rounded bg-posted px-3 py-2 text-sm font-semibold text-white">
+                  Cleared
+                </button>
+              </form>
+              <form method="post" action="{% url 'payments:cheque-bounce' pk=payment.pk %}"
+                    onsubmit="return confirm('Record this cheque as bounced? Reversing entries will be posted, every invoice it was paying goes back to open, and the shop is flagged.');">
+                {% csrf_token %}
+                <button type="submit"
+                        class="rounded bg-cancelled px-3 py-2 text-sm font-semibold text-white">
+                  Bounced
+                </button>
+              </form>
+            </div>
+          </div>
+        {% elif cheque.event %}
+          <form method="post"
+                action="{% url 'payments:cheque-event-cancel' pk=cheque.event.pk %}"
+                class="mt-2 flex items-center gap-2"
+                onsubmit="return confirm('Reverse this cheque event? The cheque goes back to pending.');">
+            {% csrf_token %}
+            <input type="text" name="reason" placeholder="Reason"
+                   class="rounded border border-gray-300 px-2 py-1.5 text-sm">
+            <button type="submit" class="rounded border border-gray-300 px-3 py-2 text-sm">
+              Reverse {{ cheque.event.code }}
+            </button>
+          </form>
+        {% endif %}
+      {% endif %}
+    </div>
+
+    {# ------------------------------------------------------- the GL posting #}
+    <div>
+      <h2 class="mb-1 text-xs font-semibold uppercase tracking-wide text-gray-600">
+        {% if payment.status == "DRAFT" %}General ledger preview{% else %}General ledger{% endif %}
+      </h2>
+      <table class="w-full text-sm">
+        <tbody>
+          {% for gl in gl_lines %}
+            <tr class="border-b border-gray-100">
+              <td class="py-0.5 pr-2">
+                <span class="font-mono text-xs text-gray-500">{{ gl.account.code }}</span>
+                {{ gl.account.name }}
+              </td>
+              <td class="amount py-0.5 pr-2">{{ gl.debit_paisa|money }}</td>
+              <td class="amount py-0.5">{{ gl.credit_paisa|money }}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      <p class="mt-1 text-xs text-gray-500">
+        Built by the same function that posts it, so the preview cannot drift from what
+        lands in the ledger.
+      </p>
+    </div>
+  </div>
+
+  {# ------------------------------------------------------------ allocations #}
+  <h2 class="mb-1 mt-6 text-xs font-semibold uppercase tracking-wide text-gray-600">
+    What this settles
+  </h2>
+  {% if allocations %}
+    <table class="w-full border-collapse text-sm">
+      <thead>
+        <tr class="border-b border-gray-300 text-left text-xs uppercase tracking-wide text-gray-500">
+          <th class="py-1 pr-2">Document</th>
+          <th class="py-1 pr-2">Date</th>
+          <th class="py-1 pr-2 text-right">Applied</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for allocation in allocations %}
+          <tr class="border-b border-gray-100">
+            <td class="py-1 pr-2 font-mono text-xs">{{ allocation.document_code }}</td>
+            <td class="py-1 pr-2">{{ allocation.document.posting_date|date:"d M Y" }}</td>
+            <td class="amount py-1 pr-2">{{ allocation.amount_paisa|money }}</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% else %}
+    <p class="text-sm text-gray-500">Nothing yet — the whole payment is on account.</p>
+  {% endif %}
+
+  {# ------------------------------------------------- allocate to open bills #}
+  {% if allocation_rows and payment.is_live %}
+    <form method="post" action="{% url 'payments:allocate' pk=payment.pk %}" class="mt-3">
+      {% csrf_token %}
+      <table class="w-full border-collapse text-sm">
+        <thead>
+          <tr class="border-b border-gray-300 text-left text-xs uppercase tracking-wide text-gray-500">
+            <th class="py-1 pr-2">Open invoice</th>
+            <th class="py-1 pr-2">Due</th>
+            <th class="py-1 pr-2">Age</th>
+            <th class="py-1 pr-2 text-right">Outstanding</th>
+            <th class="py-1 pr-2 text-right">Allocate</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for item, allocate_field in allocation_rows %}
+            <tr class="border-b border-gray-100">
+              <td class="py-1 pr-2 font-mono text-xs">{{ item.voucher_code }}</td>
+              <td class="py-1 pr-2">{{ item.due_date|date:"d M Y" }}</td>
+              <td class="py-1 pr-2 {% if item.is_overdue %}text-cancelled{% else %}text-gray-500{% endif %}">
+                {{ item.bucket_label }}
+              </td>
+              <td class="amount py-1 pr-2">{{ item.outstanding_paisa|money }}</td>
+              <td class="py-1 pr-2 text-right">{{ allocate_field }}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      <div class="mt-2 flex items-center gap-2">
+        <button type="submit" class="rounded bg-brand-700 px-3 py-2 text-sm font-semibold text-white">
+          Save allocation
+        </button>
+        <span class="text-xs text-gray-500">
+          Saving replaces this payment's whole allocation — a box left blank takes it off
+          that bill and puts the money back on account.
+        </span>
+      </div>
+    </form>
+  {% endif %}
+
+  {# --------------------------------------------------------------- actions #}
+  <div class="no-print mt-6 flex flex-wrap items-center gap-2 border-t border-gray-200 pt-3">
+    {% if payment.status == "DRAFT" %}
+      <form method="post" action="{% url 'payments:post' pk=payment.pk %}">
+        {% csrf_token %}
+        <button type="submit"
+                class="rounded bg-posted px-4 py-2 text-sm font-semibold text-white">
+          Post payment
+        </button>
+      </form>
+      <form method="post" action="{% url 'payments:delete' pk=payment.pk %}"
+            onsubmit="return confirm('Delete this draft? It has written nothing to any ledger.');">
+        {% csrf_token %}
+        <button type="submit" class="rounded border border-gray-300 px-3 py-2 text-sm">
+          Delete draft
+        </button>
+      </form>
+
+    {% elif payment.status == "POSTED" %}
+      {% if payment.unallocated_paisa %}
+        <form method="post" action="{% url 'payments:auto-allocate' pk=payment.pk %}">
+          {% csrf_token %}
+          <button type="submit" class="rounded border border-gray-300 px-3 py-2 text-sm">
+            Apply to the oldest bills
+          </button>
+        </form>
+      {% endif %}
+      <form method="post" action="{% url 'payments:cancel' pk=payment.pk %}"
+            class="flex items-center gap-2"
+            onsubmit="return confirm('Cancel this payment? Reversing entries will be posted.');">
+        {% csrf_token %}
+        <input type="text" name="reason" placeholder="Reason"
+               class="rounded border border-gray-300 px-2 py-1.5 text-sm">
+        <button type="submit"
+                class="rounded bg-cancelled px-4 py-2 text-sm font-semibold text-white">
+          Cancel &amp; reverse
+        </button>
+      </form>
+
+    {% elif payment.status == "CANCELLED" %}
+      <form method="post" action="{% url 'payments:amend' pk=payment.pk %}">
+        {% csrf_token %}
+        <button type="submit"
+                class="rounded bg-brand-700 px-4 py-2 text-sm font-semibold text-white">
+          Amend into a new draft
+        </button>
+      </form>
+      {% if payment.cancel_reason %}
+        <span class="text-sm text-gray-500">Cancelled: {{ payment.cancel_reason }}</span>
+      {% endif %}
+    {% endif %}
+  </div>
+{% endblock %}

@@ -1,0 +1,35 @@
+{% load core_tags %}
+
+{% comment %}
+  Client autocomplete hits, matched on **code, name or phone** by the server.
+
+  Each row carries what the shop owes, aggregated from the ledger. On this
+  screen that is always the next question, and making the operator pick the shop
+  before they can see it is a wasted keystroke on a screen used all day.
+{% endcomment %}
+
+{% if results %}
+  <ul>
+    {% for hit in results %}
+      <li>
+        <button type="button"
+                data-result
+                data-active="{% if forloop.first %}true{% else %}false{% endif %}"
+                data-client-id="{{ hit.client.pk }}"
+                data-client-label="{{ hit.client.code }} — {{ hit.client.name }}"
+                class="flex w-full items-baseline justify-between gap-3 px-2 py-1.5 text-left text-sm hover:bg-brand-50 {% if forloop.first %}bg-brand-50{% endif %}">
+          <span>
+            <span class="font-mono text-xs text-gray-500">{{ hit.client.code }}</span>
+            {{ hit.client.name }}
+            {% if hit.client.phone %}<span class="text-xs text-gray-400">{{ hit.client.phone }}</span>{% endif %}
+          </span>
+          <span class="amount whitespace-nowrap text-xs {% if hit.outstanding_paisa > 0 %}text-cancelled{% else %}text-gray-500{% endif %}">
+            {{ hit.outstanding_paisa|money }}
+          </span>
+        </button>
+      </li>
+    {% endfor %}
+  </ul>
+{% elif q %}
+  <p class="px-2 py-1.5 text-sm text-gray-500">No client matches “{{ q }}”.</p>
+{% endif %}

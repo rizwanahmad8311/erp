@@ -330,16 +330,58 @@ class TestAppRegistry:
         assert sales.compute_line is pricing.compute_line
         assert purchasing.update_line is sales.update_line
 
+    def test_payments_holds_the_money_the_link_and_the_cheque(self):
+        """Three models, and the split between them is the design.
+
+        A payment is a document. An allocation is a *link* from that money to
+        the bills it settles, which is why it is a separate table and why it
+        stays editable after the payment posts. A cheque event is a document of
+        its own because clearing happens weeks later and deserves its own date.
+
+        A fourth model here would almost certainly be a cached balance.
+        """
+        from django.apps import apps as django_apps
+
+        payments_models = {m.__name__ for m in django_apps.get_app_config("payments").get_models()}
+        assert payments_models == {"Payment", "PaymentAllocation", "ChequeEvent"}, (
+            f"unexpected payments models: {sorted(payments_models)}"
+        )
+
+    def test_every_payment_document_is_a_DocumentModel(self):
+        """DRAFT -> POSTED -> CANCELLED, enforced rather than remembered.
+
+        The allocation is deliberately *not* one: it writes no ledger row, so
+        freezing it when the payment posts would make the recovery workspace —
+        where money that arrived last week is applied to bills today —
+        impossible.
+        """
+        from apps.core.models import DocumentModel, TimeStampedModel
+        from apps.payments.models import ChequeEvent, Payment, PaymentAllocation
+
+        for model in (Payment, ChequeEvent):
+            assert issubclass(model, DocumentModel)
+        assert issubclass(PaymentAllocation, TimeStampedModel)
+        assert not issubclass(PaymentAllocation, DocumentModel)
+
+    def test_no_payment_caches_what_the_bank_did_with_the_cheque(self):
+        """CLAUDE.md §5 and §6, meeting on the same field.
+
+        A ``cheque_status`` column would have to be written onto a POSTED
+        document, which the lifecycle forbids, *and* would be a second answer
+        that can disagree with the cheque events. It is derived from them.
+        """
+        from apps.payments.models import Payment
+
+        columns = {field.name for field in Payment._meta.get_fields()}
+        for banned in ("cheque_status", "allocated_paisa", "outstanding_paisa", "is_bounced"):
+            assert banned not in columns, f"Payment.{banned} must be derived, not stored"
+
     def test_no_other_domain_models_exist_yet(self):
         """core may hold infrastructure (DocumentSequence); the remaining domain
         apps hold nothing at all until their models are designed."""
         from django.apps import apps as django_apps
 
-        domain_labels = {
-            "payments",
-            "reports",
-            "backup",
-        }
+        domain_labels = {"reports", "backup"}
         models = [m for m in django_apps.get_models() if m._meta.app_label in domain_labels]
         assert models == [], f"Unexpected models: {models}"
 

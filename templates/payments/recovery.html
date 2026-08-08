@@ -1,0 +1,67 @@
+{% extends "base.html" %}
+{% load static core_tags %}
+
+{% comment %}
+  The recovery workspace — the screen the accountant lives in.
+
+  Everything money-shaped on this page was computed in Python and arrived as
+  HTML. The JavaScript here expands a row and moves focus; it never touches a
+  number. See apps/payments/recovery.py, which reads the ledger, and
+  apps/payments/views.py, which renders it.
+
+  Overdue money is in the alarm colour (`text-cancelled`, the same one an
+  over-limit invoice uses) and so is a shop that has handed over a cheque that
+  bounced. Those two are what somebody needs to see before they pick up the
+  phone.
+
+  htmx is served from static/dist; there is no CDN anywhere in this project,
+  because the production PC has no internet (CLAUDE.md §7).
+{% endcomment %}
+
+{% block title %}Recovery{% endblock %}
+
+{% block extra_js %}
+  <script src="{% static 'js/htmx-2.0.4.min.js' %}"></script>
+{% endblock %}
+
+{% block content %}
+  <div class="mb-3 flex flex-wrap items-baseline justify-between gap-2">
+    <div>
+      <h1 class="text-xl font-semibold">Recovery</h1>
+      <p class="text-sm text-gray-600">
+        {{ row_count }} shop{{ row_count|pluralize }} with something on account,
+        as at {{ as_of|date:"d M Y" }}.
+        Every figure is aggregated from the ledger (CLAUDE.md §6).
+      </p>
+    </div>
+    <div class="flex items-center gap-3 text-sm">
+      <a href="{% url 'payments:cheques' %}" class="text-brand-700 underline">Cheques in hand</a>
+      <a href="{% url 'payments:list' %}" class="text-brand-700 underline">All payments</a>
+      <a href="{% url 'payments:create' %}"
+         class="rounded bg-brand-700 px-3 py-2 text-sm font-semibold text-white">New payment</a>
+    </div>
+  </div>
+
+  {# ------------------------------------------------------------- filters #}
+  <form method="get"
+        class="no-print mb-4 flex flex-wrap items-end gap-2 rounded border border-gray-200 bg-gray-50 p-3"
+        hx-get="{% url 'payments:recovery-rows' %}"
+        hx-target="#sheet"
+        hx-swap="outerHTML"
+        hx-trigger="change, keyup changed delay:300ms from:input[type=search], submit">
+    {% for field in filters %}
+      <label class="block text-xs uppercase tracking-wide text-gray-600">
+        {{ field.label }}
+        {{ field }}
+      </label>
+    {% endfor %}
+    <button type="submit" class="rounded border border-gray-300 bg-white px-3 py-1.5 text-sm">
+      Apply
+    </button>
+    <a href="{% url 'payments:recovery' %}" class="px-2 py-1.5 text-sm text-gray-500 underline">
+      Clear
+    </a>
+  </form>
+
+  {% include "payments/partials/sheet.html" %}
+{% endblock %}

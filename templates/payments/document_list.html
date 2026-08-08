@@ -1,0 +1,99 @@
+{% extends "base.html" %}
+{% load core_tags %}
+
+{% block title %}Payments{% endblock %}
+
+{% block content %}
+  <div class="mb-4 flex flex-wrap items-baseline justify-between gap-2">
+    <h1 class="text-xl font-semibold">Receipts &amp; payments</h1>
+    <div class="flex items-center gap-3 text-sm">
+      <a href="{% url 'payments:recovery' %}" class="text-brand-700 underline">Recovery</a>
+      <a href="{% url 'payments:cheques' %}" class="text-brand-700 underline">Cheques in hand</a>
+      <a href="{% url 'payments:create' %}"
+         class="rounded bg-brand-700 px-3 py-2 text-sm font-semibold text-white">New payment</a>
+    </div>
+  </div>
+
+  <form method="get" class="no-print mb-4 flex flex-wrap gap-2">
+    <input type="search" name="q" value="{{ query }}" autofocus
+           placeholder="Code or cheque number"
+           class="rounded border border-gray-300 px-2 py-1.5 text-sm">
+    <select name="direction" class="rounded border border-gray-300 px-2 py-1.5 text-sm">
+      <option value="">Either way</option>
+      {% for value, label in directions %}
+        <option value="{{ value }}" {% if value == direction %}selected{% endif %}>{{ label }}</option>
+      {% endfor %}
+    </select>
+    <select name="mode" class="rounded border border-gray-300 px-2 py-1.5 text-sm">
+      <option value="">Any mode</option>
+      {% for value, label in modes %}
+        <option value="{{ value }}" {% if value == mode %}selected{% endif %}>{{ label }}</option>
+      {% endfor %}
+    </select>
+    <select name="status" class="rounded border border-gray-300 px-2 py-1.5 text-sm">
+      <option value="">Any status</option>
+      {% for value, label in statuses %}
+        <option value="{{ value }}" {% if value == status %}selected{% endif %}>{{ label }}</option>
+      {% endfor %}
+    </select>
+    <button type="submit" class="rounded border border-gray-300 px-3 py-1.5 text-sm">Filter</button>
+  </form>
+
+  <table class="w-full border-collapse text-sm">
+    <thead>
+      <tr class="border-b border-gray-300 text-left text-xs uppercase tracking-wide text-gray-600">
+        <th class="py-2 pr-2">Code</th>
+        <th class="py-2 pr-2">Date</th>
+        <th class="py-2 pr-2">Party</th>
+        <th class="py-2 pr-2">Mode</th>
+        <th class="py-2 pr-2">Route</th>
+        <th class="py-2 pr-2">Collected by</th>
+        <th class="py-2 pr-2 text-right">Amount</th>
+        <th class="py-2 pr-2 text-right">On account</th>
+        <th class="py-2 pr-2">Cheque</th>
+        <th class="py-2">Status</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for payment in payments %}
+        <tr class="border-b border-gray-100">
+          <td class="py-1.5 pr-2 font-mono">
+            <a href="{% url 'payments:detail' pk=payment.pk %}"
+               class="text-brand-700 underline">{{ payment.code }}</a>
+          </td>
+          <td class="py-1.5 pr-2 whitespace-nowrap">{{ payment.posting_date|date:"d M Y" }}</td>
+          <td class="py-1.5 pr-2">
+            {{ payment.party_name }}
+            <span class="text-xs text-gray-500">{{ payment.get_direction_display }}</span>
+          </td>
+          <td class="py-1.5 pr-2 text-xs uppercase">{{ payment.get_mode_display }}</td>
+          <td class="py-1.5 pr-2">{{ payment.route.code|default:"—" }}</td>
+          <td class="py-1.5 pr-2">{{ payment.collected_by.name|default:"—" }}</td>
+          <td class="amount py-1.5 pr-2 font-medium">{{ payment.amount_paisa|money }}</td>
+          <td class="amount py-1.5 pr-2 {% if payment.unallocated_paisa %}text-posted{% else %}text-gray-400{% endif %}">
+            {{ payment.unallocated_paisa|money }}
+          </td>
+          <td class="py-1.5 pr-2">
+            {% if payment.is_cheque %}
+              <span class="font-mono text-xs">{{ payment.cheque_no }}</span>
+              <span class="text-xs {% if payment.is_bounced %}font-semibold text-cancelled{% elif payment.is_cleared %}text-posted{% else %}text-gray-500{% endif %}">
+                {{ payment.cheque_status_label }}
+              </span>
+            {% else %}—{% endif %}
+          </td>
+          <td class="py-1.5">{{ payment.status|doc_status }}</td>
+        </tr>
+      {% empty %}
+        <tr>
+          <td colspan="10" class="py-6 text-center text-sm text-gray-500">Nothing here yet.</td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  <p class="mt-4 text-xs text-gray-500">
+    "On account" is what a payment has not yet been applied to a bill — a normal state,
+    and the figure the recovery sheet chases. Every balance here is aggregated from the
+    ledger, never from a cached column (CLAUDE.md §6).
+  </p>
+{% endblock %}

@@ -229,7 +229,6 @@ UNFOLD = {
                 ],
             },
             {
-                # Receipts and payments join these as the payments app arrives.
                 # Sales comes first: it is what the office does all day. The links go to the
                 # keyboard entry screens, not to the admin changelists — the
                 # admin is for looking things up, not for typing bills into.
@@ -258,6 +257,32 @@ UNFOLD = {
                         "title": "Purchase returns",
                         "icon": "assignment_return",
                         "link": reverse_lazy("purchasing:list", kwargs={"slug": "returns"}),
+                        "permission": _staff,
+                    },
+                    {
+                        "title": "Receipts & payments",
+                        "icon": "payments",
+                        "link": reverse_lazy("payments:list"),
+                        "permission": _staff,
+                    },
+                ],
+            },
+            {
+                # The screen the accountant lives in, and the drawer beside it.
+                # Both aggregate the ledger; neither holds a figure of its own.
+                "title": "Recovery",
+                "separator": True,
+                "items": [
+                    {
+                        "title": "Recovery workspace",
+                        "icon": "request_quote",
+                        "link": reverse_lazy("payments:recovery"),
+                        "permission": _staff,
+                    },
+                    {
+                        "title": "Cheques in hand",
+                        "icon": "account_balance",
+                        "link": reverse_lazy("payments:cheques"),
                         "permission": _staff,
                     },
                 ],

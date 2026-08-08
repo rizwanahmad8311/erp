@@ -1,0 +1,90 @@
+{% extends "base.html" %}
+{% load core_tags %}
+
+{% comment %}
+  The drawer: every cheque that has been taken and has not yet cleared, oldest
+  cheque date first.
+
+  The total at the bottom is what account 1160 Cheques in Hand should be
+  showing. That is the point of keeping cheques out of Bank in the first place —
+  it is a reconciliation somebody can do by eye, in a business where most of
+  what comes in is post-dated.
+{% endcomment %}
+
+{% block title %}Cheques in hand{% endblock %}
+
+{% block content %}
+  <div class="mb-4 flex flex-wrap items-baseline justify-between gap-2">
+    <div>
+      <h1 class="text-xl font-semibold">Cheques in hand</h1>
+      <p class="text-sm text-gray-600">
+        {{ cheques|length }} cheque{{ cheques|length|pluralize }} not yet cleared, as at
+        {{ as_of|date:"d M Y" }}.
+        {% if due_count %}
+          <span class="text-cancelled">{{ due_count }} can be banked now.</span>
+        {% endif %}
+      </p>
+    </div>
+    <div class="flex items-center gap-3 text-sm">
+      <a href="{% url 'payments:recovery' %}" class="text-brand-700 underline">Recovery</a>
+      <a href="{% url 'payments:list' %}" class="text-brand-700 underline">All payments</a>
+    </div>
+  </div>
+
+  <table class="w-full border-collapse text-sm">
+    <thead>
+      <tr class="border-b border-gray-300 text-left text-xs uppercase tracking-wide text-gray-600">
+        <th class="py-2 pr-2">Cheque</th>
+        <th class="py-2 pr-2">Dated</th>
+        <th class="py-2 pr-2">Bank</th>
+        <th class="py-2 pr-2">Party</th>
+        <th class="py-2 pr-2">Taken</th>
+        <th class="py-2 pr-2">Route</th>
+        <th class="py-2 pr-2">Collected by</th>
+        <th class="py-2 pr-2 text-right">Amount</th>
+        <th class="py-2">Voucher</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for payment in cheques %}
+        <tr class="border-b border-gray-100 {% if payment.cheque_date <= as_of %}bg-cancelled/5{% endif %}">
+          <td class="py-1.5 pr-2 font-mono text-xs">{{ payment.cheque_no }}</td>
+          <td class="py-1.5 pr-2 whitespace-nowrap {% if payment.cheque_date <= as_of %}font-semibold text-cancelled{% endif %}">
+            {{ payment.cheque_date|date:"d M Y" }}
+          </td>
+          <td class="py-1.5 pr-2">{{ payment.bank_name|default:"—" }}</td>
+          <td class="py-1.5 pr-2">{{ payment.party_name }}</td>
+          <td class="py-1.5 pr-2 whitespace-nowrap">{{ payment.posting_date|date:"d M Y" }}</td>
+          <td class="py-1.5 pr-2">{{ payment.route.code|default:"—" }}</td>
+          <td class="py-1.5 pr-2">{{ payment.collected_by.name|default:"—" }}</td>
+          <td class="amount py-1.5 pr-2 font-medium">{{ payment.amount_paisa|money }}</td>
+          <td class="py-1.5">
+            <a href="{% url 'payments:detail' pk=payment.pk %}"
+               class="font-mono text-xs text-brand-700 underline">{{ payment.code }}</a>
+          </td>
+        </tr>
+      {% empty %}
+        <tr>
+          <td colspan="9" class="py-6 text-center text-sm text-gray-500">
+            The drawer is empty — every cheque has been through the bank.
+          </td>
+        </tr>
+      {% endfor %}
+    </tbody>
+    {% if cheques %}
+      <tfoot>
+        <tr class="border-t border-gray-800 font-semibold">
+          <td colspan="7" class="py-2 pr-2">Should equal account 1160 Cheques in Hand</td>
+          <td class="amount py-2 pr-2">{{ total_paisa|money }}</td>
+          <td></td>
+        </tr>
+      </tfoot>
+    {% endif %}
+  </table>
+
+  <p class="mt-4 text-xs text-gray-500">
+    A row in the alarm colour is a cheque whose date has arrived and which can be banked.
+    Clearing or bouncing one is done from its own voucher, so the posting carries the day
+    the bank acted rather than the day the cheque was taken.
+  </p>
+{% endblock %}

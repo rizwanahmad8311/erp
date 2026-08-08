@@ -40,12 +40,22 @@ DEFAULT_CHART: tuple[dict, ...] = (
     _account("1130", "Accounts Receivable", ASSET, parent="1100"),
     _account("1140", "Inventory", ASSET, parent="1100"),
     _account("1150", "Advances to Suppliers", ASSET, parent="1100"),
+    # A cheque taken from a shop is not money yet. It sits here until the bank
+    # says otherwise — see apps.payments. Post-dated cheques are how this
+    # business runs, so this account is routinely the second largest asset on
+    # the sheet and must never be folded into Bank.
+    _account("1160", "Cheques in Hand", ASSET, parent="1100"),
     # -- 2xxx Liabilities ---------------------------------------------------
     _account("2000", "Liabilities", LIABILITY, group=True),
     _account("2100", "Current Liabilities", LIABILITY, parent="2000", group=True),
     _account("2110", "Accounts Payable", LIABILITY, parent="2100"),
     _account("2120", "Tax Payable", LIABILITY, parent="2100"),
     _account("2130", "Advances from Customers", LIABILITY, parent="2100"),
+    # The mirror of 1160: a cheque we have written and the supplier has not yet
+    # presented. The money has left our books but not our bank, and a bank
+    # reconciliation that cannot see the difference is a bank reconciliation
+    # that never balances.
+    _account("2140", "Cheques Issued", LIABILITY, parent="2100"),
     # -- 3xxx Equity --------------------------------------------------------
     _account("3000", "Equity", EQUITY, group=True),
     _account("3100", "Owner's Equity", EQUITY, parent="3000"),
@@ -85,8 +95,10 @@ CASH = "1110"
 BANK = "1120"
 ACCOUNTS_RECEIVABLE = "1130"
 INVENTORY = "1140"
+CHEQUES_IN_HAND = "1160"
 ACCOUNTS_PAYABLE = "2110"
 TAX_PAYABLE = "2120"
+CHEQUES_ISSUED = "2140"
 SALES = "4100"
 SALES_RETURNS = "4200"
 DISCOUNT_RECEIVED = "4300"
