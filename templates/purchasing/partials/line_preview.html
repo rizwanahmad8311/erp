@@ -1,0 +1,30 @@
+{% load core_tags %}
+
+{% comment %} What the row being typed comes to. Computed by services.compute_line on the
+   server and sent as finished HTML — the browser is never handed the numbers,
+   because a browser doing paisa arithmetic in floats is CLAUDE.md §1 broken in
+   the one place nobody thinks to look. Nothing here is saved. {% endcomment %}
+
+{% if error %}
+  <span class="text-cancelled">{{ error }}</span>
+{% elif preview %}
+  <span class="text-gray-500">=</span>
+  <span class="amount font-medium">{{ preview.amounts.amount_paisa|money }}</span>
+  <span class="text-gray-500">
+    for {{ preview.qty_display }}
+    &middot; {{ preview.amounts.rate_paisa|money }} per base unit
+    {% if preview.amounts.tax_paisa %}
+      &middot; tax {{ preview.amounts.tax_paisa|money }}
+    {% endif %}
+    {% if preview.amounts.discount_paisa %}
+      &middot; less {{ preview.amounts.discount_paisa|money }} discount
+    {% endif %}
+    &middot; line total {{ preview.amounts.total_paisa|money }}
+  </span>
+  {% if not preview.amounts.rate_is_exact %}
+    <span class="ml-1 text-amber-600"
+          title="The per-base-unit rate is rounded. The line amount above is what was billed and what will post.">
+      * rate rounded &mdash; the amount above is what posts
+    </span>
+  {% endif %}
+{% endif %}

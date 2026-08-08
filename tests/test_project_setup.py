@@ -236,13 +236,50 @@ class TestAppRegistry:
             f"Aggregate from the ledger instead."
         )
 
+    def test_purchasing_holds_two_documents_and_their_lines(self):
+        """A document and its lines, per document type. Nothing else.
+
+        No ``Payment``, no ``GoodsReceipt``, no allocation table — those belong
+        to the apps that own them, and a model invented in advance of the app
+        that owns it is a model that gets invented wrong.
+        """
+        from django.apps import apps as django_apps
+
+        purchasing_models = {
+            m.__name__ for m in django_apps.get_app_config("purchasing").get_models()
+        }
+        assert purchasing_models == {
+            "PurchaseInvoice",
+            "PurchaseInvoiceLine",
+            "PurchaseReturn",
+            "PurchaseReturnLine",
+        }, f"unexpected purchasing models: {sorted(purchasing_models)}"
+
+    def test_every_purchase_document_is_a_DocumentModel(self):
+        """Which is what makes DRAFT -> POSTED -> CANCELLED enforced rather than
+        remembered, and what makes a posted document immutable."""
+        from apps.core.models import DocumentModel
+        from apps.purchasing.models import PurchaseInvoice, PurchaseReturn
+
+        for model in (PurchaseInvoice, PurchaseReturn):
+            assert issubclass(model, DocumentModel)
+
+    def test_no_document_caches_what_it_has_been_paid(self):
+        """CLAUDE.md §6. ``paid_paisa`` is a property over the payments, and a
+        column would be a number that can disagree with them."""
+        from apps.purchasing.models import PurchaseInvoice, PurchaseReturn
+
+        for model in (PurchaseInvoice, PurchaseReturn):
+            columns = {field.name for field in model._meta.get_fields()}
+            assert "paid_paisa" not in columns
+            assert "outstanding_paisa" not in columns
+
     def test_no_other_domain_models_exist_yet(self):
         """core may hold infrastructure (DocumentSequence); the remaining domain
         apps hold nothing at all until their models are designed."""
         from django.apps import apps as django_apps
 
         domain_labels = {
-            "purchasing",
             "sales",
             "payments",
             "reports",

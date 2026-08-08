@@ -5,8 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>{% block title %}Distribution ERP{% endblock %}</title>
 
-    {# Every asset is served from static/dist by WhiteNoise. No CDN, ever —
-       the production PC has no internet. See CLAUDE.md. #}
+    {% comment %} Every asset is served from static/dist by WhiteNoise. No CDN, ever —
+       the production PC has no internet. See CLAUDE.md. {% endcomment %}
     <link rel="stylesheet" href="{% static 'app.css' %}">
     {% block extra_css %}{% endblock %}
   </head>

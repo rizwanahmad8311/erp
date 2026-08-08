@@ -324,14 +324,58 @@ class TestPostingIsRejected:
                 APRIL,
             )
 
-    def test_with_an_incoming_line_that_has_no_rate(self, items, warehouses, ledger_voucher):
+    def test_with_an_incoming_line_that_has_no_cost_at_all(self, items, warehouses, ledger_voucher):
         """Nothing but the document knows what the goods cost."""
-        with pytest.raises(InvalidPosting, match="no rate_paisa"):
+        with pytest.raises(InvalidPosting, match="neither rate_paisa nor value_paisa"):
             post_stock(
                 ledger_voucher,
                 [{"item": items.rice, "warehouse": warehouses.main, "qty_base": 100}],
                 APRIL,
             )
+
+    def test_with_an_incoming_line_that_gives_both_a_rate_and_a_value(
+        self, items, warehouses, ledger_voucher
+    ):
+        """Two costs on one row, with no way to say which was meant."""
+        with pytest.raises(InvalidPosting, match="both rate_paisa and value_paisa"):
+            post_stock(
+                ledger_voucher,
+                [
+                    {
+                        "item": items.rice,
+                        "warehouse": warehouses.main,
+                        "qty_base": 100,
+                        "rate_paisa": 1000,
+                        "value_paisa": 100000,
+                    }
+                ],
+                APRIL,
+            )
+
+    def test_an_incoming_line_may_state_its_total_cost_instead_of_a_rate(
+        self, items, warehouses, ledger_voucher
+    ):
+        """The purchase-invoice case: the money is exact, the rate is derived.
+
+        240 pieces for Rs 2,500 is 1041.66... paisa each, and no integer rate
+        multiplies back to the bill. The value is what inventory is debited; the
+        rate is recorded for the stock card and is never multiplied out.
+        """
+        (entry,) = post_stock(
+            ledger_voucher,
+            [
+                {
+                    "item": items.rice,
+                    "warehouse": warehouses.main,
+                    "qty_base": 240,
+                    "value_paisa": 250000,
+                }
+            ],
+            APRIL,
+        )
+        assert entry.value_paisa == 250000
+        assert entry.rate_paisa == 1042  # 1041.66... rounded once, for the card
+        assert stock_balance(items.rice, warehouses.main).value_paisa == 250000
 
     def test_with_an_outgoing_line_that_supplies_a_rate(self, items, warehouses, ledger_voucher):
         """The rate a sales line knows is the *selling* price. Accepting it would

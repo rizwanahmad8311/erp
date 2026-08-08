@@ -1,0 +1,158 @@
+{% load core_tags %}
+
+{% comment %} The bottom strip: what the document comes to, and exactly what it will do to
+   the general ledger.
+
+   The preview is built by the *posting service* — services.build_invoice_gl and
+   services.build_return_gl are the same functions post() calls. A preview
+   computed any other way is a preview that will eventually disagree with what
+   actually lands in the ledger, which is worse than showing nothing. {% endcomment %}
+
+<div class="no-print mt-6 grid gap-4 border-t-2 border-gray-800 pt-3 md:grid-cols-2">
+
+  {# ----------------------------------------------------------- the totals #}
+  <div>
+    <h2 class="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-600">Totals</h2>
+    <table class="w-full text-sm">
+      <tbody>
+        <tr>
+          <td class="py-0.5 text-gray-600">Subtotal</td>
+          <td class="amount py-0.5">{{ document.subtotal_paisa|money }}</td>
+        </tr>
+        {% if document.discount_paisa %}
+          <tr>
+            <td class="py-0.5 text-gray-600">Discount</td>
+            <td class="amount py-0.5">-{{ document.discount_paisa|money }}</td>
+          </tr>
+        {% endif %}
+        <tr>
+          <td class="py-0.5 text-gray-600">Tax</td>
+          <td class="amount py-0.5">{{ document.tax_paisa|money }}</td>
+        </tr>
+        <tr class="border-t border-gray-800">
+          <td class="py-1 font-semibold">Total</td>
+          <td class="amount py-1 text-base font-semibold">{{ document.total_paisa|money }}</td>
+        </tr>
+        {% if document.status == "POSTED" and not is_return %}
+          <tr>
+            <td class="py-0.5 text-gray-600">
+              Paid
+              {# Derived from the payments, never stored — CLAUDE.md §6. #}
+            </td>
+            <td class="amount py-0.5">{{ document.paid_paisa|money }}</td>
+          </tr>
+          <tr>
+            <td class="py-0.5 text-gray-600">Outstanding</td>
+            <td class="amount py-0.5 font-medium">{{ document.outstanding_paisa|money }}</td>
+          </tr>
+        {% endif %}
+      </tbody>
+    </table>
+  </div>
+
+  {# ------------------------------------------------------- the GL preview #}
+  <div>
+    <h2 class="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-600">
+      {% if document.status == "DRAFT" %}
+        General ledger preview
+      {% else %}
+        General ledger
+      {% endif %}
+    </h2>
+
+    {% if gl_lines %}
+      <table class="w-full text-sm">
+        <thead>
+          <tr class="border-b border-gray-300 text-left text-xs uppercase tracking-wide text-gray-600">
+            <th class="py-1 pr-2">Account</th>
+            <th class="py-1 pr-2 text-right">Debit</th>
+            <th class="py-1 text-right">Credit</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for gl in gl_lines %}
+            <tr class="border-b border-gray-100">
+              <td class="py-0.5 pr-2">
+                <span class="font-mono text-xs text-gray-500">{{ gl.account.code }}</span>
+                {{ gl.account.name }}
+                <span class="block text-xs text-gray-500">{{ gl.label }}</span>
+              </td>
+              <td class="amount py-0.5 pr-2">{{ gl.debit_paisa|money }}</td>
+              <td class="amount py-0.5">{{ gl.credit_paisa|money }}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+        <tfoot>
+          <tr class="border-t border-gray-800 font-semibold">
+            <td class="py-1 pr-2">
+              {% if gl_debit_paisa == gl_credit_paisa %}
+                Balanced
+              {% else %}
+                <span class="text-cancelled">OUT OF BALANCE</span>
+              {% endif %}
+            </td>
+            <td class="amount py-1 pr-2">{{ gl_debit_paisa|money }}</td>
+            <td class="amount py-1">{{ gl_credit_paisa|money }}</td>
+          </tr>
+        </tfoot>
+      </table>
+
+      {% if is_return and estimated_cost_paisa is not None and document.status == "DRAFT" %}
+        <p class="mt-2 text-xs text-gray-500">
+          Inventory is credited {{ estimated_cost_paisa|money }} — what the goods are
+          <em>carried</em> at, which is the moving average, not the rate on this credit
+          note. Estimated at today's average; the figure that posts is computed under the
+          write lock when you post.
+        </p>
+      {% endif %}
+    {% else %}
+      <p class="text-sm text-gray-500">Add a line to see what this will post.</p>
+    {% endif %}
+  </div>
+</div>
+
+{# --------------------------------------------------------------- actions #}
+<div class="no-print mt-4 flex flex-wrap items-center gap-2 border-t border-gray-200 pt-3">
+  {% if document.status == "DRAFT" %}
+    <form method="post" action="{% url 'purchasing:post' slug=kind.slug pk=document.pk %}">
+      {% csrf_token %}
+      <button type="submit"
+              class="rounded bg-posted px-4 py-2 text-sm font-semibold text-white disabled:opacity-40"
+              {% if not lines %}disabled{% endif %}>
+        Post {{ kind.title|lower }}
+      </button>
+    </form>
+    <form method="post" action="{% url 'purchasing:delete' slug=kind.slug pk=document.pk %}"
+          onsubmit="return confirm('Delete this draft? It has written nothing to any ledger.');">
+      {% csrf_token %}
+      <button type="submit" class="rounded border border-gray-300 px-3 py-2 text-sm">
+        Delete draft
+      </button>
+    </form>
+
+  {% elif document.status == "POSTED" %}
+    <form method="post" action="{% url 'purchasing:cancel' slug=kind.slug pk=document.pk %}"
+          class="flex items-center gap-2"
+          onsubmit="return confirm('Cancel this document? Reversing entries will be posted to both ledgers.');">
+      {% csrf_token %}
+      <input type="text" name="reason" placeholder="Reason"
+             class="rounded border border-gray-300 px-2 py-1.5 text-sm">
+      <button type="submit"
+              class="rounded bg-cancelled px-4 py-2 text-sm font-semibold text-white">
+        Cancel &amp; reverse
+      </button>
+    </form>
+
+  {% elif document.status == "CANCELLED" %}
+    <form method="post" action="{% url 'purchasing:amend' slug=kind.slug pk=document.pk %}">
+      {% csrf_token %}
+      <button type="submit"
+              class="rounded bg-brand-700 px-4 py-2 text-sm font-semibold text-white">
+        Amend into a new draft
+      </button>
+    </form>
+    {% if document.cancel_reason %}
+      <span class="text-sm text-gray-500">Cancelled: {{ document.cancel_reason }}</span>
+    {% endif %}
+  {% endif %}
+</div>

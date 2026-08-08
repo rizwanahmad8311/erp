@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+{% load static core_tags %}
+
+{% comment %} The keyboard-driven entry screen.
+
+   Everything money-shaped on this page was computed in Python and arrived as
+   HTML. There is no arithmetic in the browser — see apps/purchasing/views.py.
+
+   htmx is vendored into static/dist/js/; there is no CDN anywhere in this
+   project, because the production PC has no internet (CLAUDE.md §7). {% endcomment %}
+
+{% block title %}{{ document.code }} — {{ kind.title }}{% endblock %}
+
+{% block extra_js %}
+  <script src="{% static 'js/htmx-2.0.4.min.js' %}"></script>
+{% endblock %}
+
+{% block content %}
+  <div class="mb-4 flex flex-wrap items-baseline justify-between gap-2">
+    <div>
+      <h1 class="text-xl font-semibold">
+        {{ kind.title }} <span class="font-mono">{{ document.code }}</span>
+      </h1>
+      <p class="text-sm text-gray-600">
+        {{ document.vendor.name }} &middot; {{ document.warehouse.name }} &middot;
+        {{ document.posting_date|date:"d M Y" }}
+        {% if document.vendor_bill_no %}
+          &middot; {{ kind.bill_label }} {{ document.vendor_bill_no }}
+        {% endif %}
+        {% if document.amended_from_id %}
+          &middot; amends <span class="font-mono">{{ document.amended_from.code }}</span>
+        {% endif %}
+      </p>
+    </div>
+    <div class="flex items-center gap-3">
+      {{ document.status|doc_status }}
+      <a href="{% url 'purchasing:list' slug=kind.slug %}"
+         class="text-sm text-brand-700 underline">All {{ kind.title|lower }}s</a>
+    </div>
+  </div>
+
+  {% comment %} One swap target for the lines, the entry row and the posting strip, so the
+     totals can never be a step behind the lines they are the total of. {% endcomment %}
+  {% include "purchasing/partials/grid.html" %}
+{% endblock %}

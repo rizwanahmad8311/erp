@@ -229,11 +229,26 @@ UNFOLD = {
                 ],
             },
             {
-                # Sales orders, invoices, deliveries, purchase receipts, bills,
-                # receipts and payments land here as each app's documents arrive.
+                # Sales orders, invoices, deliveries, receipts and payments join
+                # these as each app's documents arrive. The links go to the
+                # keyboard entry screens, not to the admin changelists — the
+                # admin is for looking things up, not for typing bills into.
                 "title": "Transactions",
                 "separator": True,
-                "items": [],
+                "items": [
+                    {
+                        "title": "Purchase invoices",
+                        "icon": "receipt",
+                        "link": reverse_lazy("purchasing:list", kwargs={"slug": "invoices"}),
+                        "permission": _staff,
+                    },
+                    {
+                        "title": "Purchase returns",
+                        "icon": "assignment_return",
+                        "link": reverse_lazy("purchasing:list", kwargs={"slug": "returns"}),
+                        "permission": _staff,
+                    },
+                ],
             },
             {
                 "title": "Accounting",

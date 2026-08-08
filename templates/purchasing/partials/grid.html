@@ -1,0 +1,152 @@
+{% load core_tags %}
+
+{% comment %} The whole entry surface: saved lines, the row being typed, and the posting
+   strip. Returned as one HTMX swap by every line endpoint, so the totals and
+   the lines are always the same age.
+
+   Every figure below was computed by apps.purchasing.services on the server.
+   Nothing here is arithmetic — it is all `{{ x|money }}` on a number that
+   arrived already worked out. {% endcomment %}
+
+<div id="grid" hx-target="#grid" hx-swap="outerHTML">
+
+  {# ---------------------------------------------------------------- lines #}
+  <table class="w-full border-collapse text-sm">
+    <thead>
+      <tr class="border-b border-gray-300 text-left text-xs uppercase tracking-wide text-gray-600">
+        <th class="py-2 pr-2">Item</th>
+        <th class="py-2 pr-2 text-right">Qty</th>
+        <th class="py-2 pr-2">Unit</th>
+        <th class="py-2 pr-2 text-right">Rate</th>
+        <th class="py-2 pr-2 text-right">Base qty</th>
+        <th class="py-2 pr-2 text-right">Rate / base</th>
+        <th class="py-2 pr-2 text-right">Discount</th>
+        <th class="py-2 pr-2 text-right">Tax</th>
+        <th class="py-2 pr-2 text-right">Amount</th>
+        <th class="py-2 w-8"></th>
+      </tr>
+    </thead>
+
+    <tbody>
+      {% for line in lines %}
+        <tr class="border-b border-gray-100">
+          <td class="py-1.5 pr-2">
+            <span class="font-mono text-xs text-gray-500">{{ line.item.code }}</span>
+            {{ line.item.name }}
+          </td>
+          <td class="amount py-1.5 pr-2">{{ line.qty_input|qty }}</td>
+          <td class="py-1.5 pr-2 text-xs uppercase">{{ line.get_unit_input_display }}</td>
+          <td class="amount py-1.5 pr-2">{{ line.entry_rate_paisa|money }}</td>
+          <td class="amount py-1.5 pr-2 text-gray-600">{{ line.qty_display }}</td>
+          <td class="amount py-1.5 pr-2 text-gray-600">
+            {{ line.rate_paisa|money }}
+            {% if not line.rate_is_exact %}
+              {% comment %} The per-piece rate is a rounded derivation of the bill. The
+                 bill is what posted; this marker exists so nobody reads the
+                 stock card and thinks the amount is wrong. {% endcomment %}
+              <span class="cursor-help text-amber-600"
+                    title="Rounded: this rate x the base quantity does not land back on the line amount. The line amount is what was billed and what posts.">*</span>
+            {% endif %}
+          </td>
+          <td class="amount py-1.5 pr-2">{{ line.discount_paisa|money }}</td>
+          <td class="amount py-1.5 pr-2">{{ line.tax_paisa|money }}</td>
+          <td class="amount py-1.5 pr-2 font-medium">{{ line.amount_paisa|money }}</td>
+          <td class="py-1.5 text-right">
+            {% if document.is_editable %}
+              <button type="button"
+                      class="text-cancelled hover:underline"
+                      title="Remove this line"
+                      hx-post="{% url 'purchasing:line-delete' slug=kind.slug pk=document.pk line_pk=line.pk %}"
+                      hx-headers='{"X-CSRFToken": "{{ csrf_token }}"}'>&times;</button>
+            {% endif %}
+          </td>
+        </tr>
+      {% empty %}
+        <tr>
+          <td colspan="10" class="py-6 text-center text-sm text-gray-500">
+            No lines yet. Type the first one below and press Enter.
+          </td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  {# ------------------------------------------------------------ entry row #}
+  {% if document.is_editable %}
+    <form class="no-print mt-3 rounded border border-gray-300 bg-gray-50 p-3"
+          hx-post="{% url 'purchasing:line-add' slug=kind.slug pk=document.pk %}"
+          hx-headers='{"X-CSRFToken": "{{ csrf_token }}"}'>
+      {% csrf_token %}
+
+      {% if line_form.non_field_errors %}
+        <p class="mb-2 rounded border border-cancelled/40 bg-cancelled/10 px-2 py-1 text-sm text-cancelled">
+          {{ line_form.non_field_errors|join:" " }}
+        </p>
+      {% endif %}
+
+      <div class="grid grid-cols-12 gap-2">
+        <label class="col-span-4 text-xs uppercase tracking-wide text-gray-600">
+          Item
+          {{ line_form.item }}
+          {% if line_form.item.errors %}
+            <span class="text-xs text-cancelled">{{ line_form.item.errors|join:" " }}</span>
+          {% endif %}
+        </label>
+
+        <label class="col-span-2 text-xs uppercase tracking-wide text-gray-600">
+          Qty
+          {{ line_form.qty_input }}
+          {% if line_form.qty_input.errors %}
+            <span class="text-xs text-cancelled">{{ line_form.qty_input.errors|join:" " }}</span>
+          {% endif %}
+        </label>
+
+        <label class="col-span-2 text-xs uppercase tracking-wide text-gray-600">
+          Unit
+          {{ line_form.unit_input }}
+        </label>
+
+        <label class="col-span-2 text-xs uppercase tracking-wide text-gray-600">
+          Rate per unit
+          {{ line_form.rate_input }}
+          {% if line_form.rate_input.errors %}
+            <span class="text-xs text-cancelled">{{ line_form.rate_input.errors|join:" " }}</span>
+          {% endif %}
+        </label>
+
+        <label class="col-span-2 text-xs uppercase tracking-wide text-gray-600">
+          Discount
+          {{ line_form.discount }}
+          {% if line_form.discount.errors %}
+            <span class="text-xs text-cancelled">{{ line_form.discount.errors|join:" " }}</span>
+          {% endif %}
+        </label>
+      </div>
+
+      {% comment %} What the row comes to, recomputed by the server on every change. The
+         browser is never told the numbers, only the finished HTML. {% endcomment %}
+      <div id="line-preview"
+           class="mt-2 min-h-6 text-sm text-gray-600"
+           hx-post="{% url 'purchasing:line-preview' slug=kind.slug pk=document.pk %}"
+           hx-trigger="change from:closest form, keyup changed delay:400ms from:closest form"
+           hx-include="closest form"
+           hx-target="this"
+           hx-swap="innerHTML"
+           hx-headers='{"X-CSRFToken": "{{ csrf_token }}"}'>
+      </div>
+
+      <div class="mt-2 flex items-center gap-3">
+        <button type="submit"
+                class="rounded bg-brand-700 px-3 py-1.5 text-sm font-medium text-white">
+          Add line <span class="opacity-70">(Enter)</span>
+        </button>
+        <span class="text-xs text-gray-500">
+          Rate is per the unit you picked — per carton when the unit is CARTON.
+        </span>
+      </div>
+    </form>
+  {% endif %}
+
+  {# ------------------------------------------------------- posting strip #}
+  {% include "purchasing/partials/posting_strip.html" %}
+</div>

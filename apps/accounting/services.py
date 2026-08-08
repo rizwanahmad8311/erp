@@ -57,9 +57,10 @@ from .valuation import Position
 #: ``debit`` for ``debit_paisa`` would otherwise post a silent zero.
 LINE_KEYS = frozenset({"account", "debit_paisa", "credit_paisa", "party", "remarks"})
 
-#: The same, for a stock line. ``rate_paisa`` is required on the way in and
-#: refused on the way out — see :func:`_prepare_stock_line`.
-STOCK_LINE_KEYS = frozenset({"item", "warehouse", "qty_base", "rate_paisa"})
+#: The same, for a stock line. An inward line carries exactly one of
+#: ``rate_paisa`` or ``value_paisa``; an outward line carries neither — see
+#: :func:`_prepare_stock_line`.
+STOCK_LINE_KEYS = frozenset({"item", "warehouse", "qty_base", "rate_paisa", "value_paisa"})
 
 
 # ---------------------------------------------------------------------------
@@ -449,8 +450,13 @@ def post_stock(voucher, lines, posting_date, *, user=None) -> list[StockEntry]:
 
     ``qty_base`` is signed: **positive in, negative out**.
 
-    Incoming lines must carry ``rate_paisa``, the cost of one base unit. It is
-    an input, not a derivation — nothing else can tell you what the goods cost.
+    Incoming lines must say what the goods cost, in exactly one of two ways.
+    Either ``rate_paisa``, the cost of one base unit, or ``value_paisa``, the
+    cost of the whole line — never both. The rate is the ordinary case; the
+    total is for a document whose money is exact and whose per-unit rate is a
+    rounded derivation of it, which is every purchase invoice billed by the
+    carton. See :meth:`~apps.accounting.valuation.Position.receive_at_value`.
+    Either way it is an *input*: nothing else can tell you what the goods cost.
 
     Outgoing lines must **not** carry a rate, and that refusal is load-bearing.
     An issue is valued at the moving weighted average for that
@@ -503,7 +509,10 @@ def post_stock(voucher, lines, posting_date, *, user=None) -> list[StockEntry]:
             position = positions[key]
 
             if line["qty_base"] > 0:
-                movement = position.receive(line["qty_base"], line["rate_paisa"])
+                if line["value_paisa"] is not None:
+                    movement = position.receive_at_value(line["qty_base"], line["value_paisa"])
+                else:
+                    movement = position.receive(line["qty_base"], line["rate_paisa"])
             else:
                 movement = position.issue(-line["qty_base"], allow_negative=allow_negative)
 
@@ -703,6 +712,11 @@ class _RunningPosition:
         self.position = self.position.apply(movement)
         return movement
 
+    def receive_at_value(self, qty_base: int, value_paisa: int):
+        movement = self.position.receive_at_value(qty_base, value_paisa)
+        self.position = self.position.apply(movement)
+        return movement
+
     def issue(self, qty_base: int, *, allow_negative: bool):
         if not allow_negative and qty_base > self.available:
             raise InsufficientStock(
@@ -810,27 +824,48 @@ def _prepare_stock_line(index: int, line) -> dict:
             f"the fact that something upstream computed zero."
         )
 
+    rate_paisa = None
+    value_paisa = None
+
     if qty_base > 0:
-        if "rate_paisa" not in line:
+        # Two ways to say what incoming stock cost, and exactly one of them per
+        # line. A rate, when the document knows the price of one base unit; a
+        # total, when it knows the money and the rate is a rounded derivation of
+        # it — see Position.receive_at_value. Accepting both would mean a row
+        # where qty x rate and value disagree with no way to tell which was
+        # meant.
+        has_rate = "rate_paisa" in line
+        has_value = "value_paisa" in line
+        if has_rate and has_value:
             raise InvalidPosting(
-                f"{where} receives {qty_base} base unit(s) but gives no rate_paisa. Incoming "
-                f"stock is valued at what it cost, and nothing but the document knows that."
+                f"{where} supplies both rate_paisa and value_paisa. Give the rate when the "
+                f"cost of one base unit is known exactly, or the total when the money is "
+                f"known exactly and the rate is derived from it — never both."
             )
-        rate_paisa = _as_rate_paisa(line["rate_paisa"], f"{where} rate_paisa")
-    else:
-        if "rate_paisa" in line:
+        if not has_rate and not has_value:
             raise InvalidPosting(
-                f"{where} issues stock and also supplies rate_paisa. An issue is valued at the "
+                f"{where} receives {qty_base} base unit(s) but gives neither rate_paisa nor "
+                f"value_paisa. Incoming stock is valued at what it cost, and nothing but the "
+                f"document knows that."
+            )
+        if has_rate:
+            rate_paisa = _as_rate_paisa(line["rate_paisa"], f"{where} rate_paisa")
+        else:
+            value_paisa = _as_value_paisa(line["value_paisa"], f"{where} value_paisa")
+    else:
+        if "rate_paisa" in line or "value_paisa" in line:
+            raise InvalidPosting(
+                f"{where} issues stock and also supplies a cost. An issue is valued at the "
                 f"moving average for that item and warehouse at that moment; a selling price "
                 f"must never reach the stock ledger, or cost of goods sold becomes the sale."
             )
-        rate_paisa = None
 
     return {
         "item": item,
         "warehouse": warehouse,
         "qty_base": qty_base,
         "rate_paisa": rate_paisa,
+        "value_paisa": value_paisa,
     }
 
 
@@ -861,6 +896,21 @@ def _as_rate_paisa(value, label: str) -> int:
         raise InvalidPosting(
             f"{label} is {value}. A cost rate is never negative — direction lives on "
             f"qty_base, and goods coming back are an issue, not a receipt at a minus rate."
+        )
+    return value
+
+
+def _as_value_paisa(value, label: str) -> int:
+    """The total cost of an inward line: a non-negative whole number of paisa."""
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise InvalidPosting(
+            f"{label} must be whole paisa as an int, got {type(value).__name__}: {value!r}. "
+            f"If you are holding a Money, pass its .paisa."
+        )
+    if value < 0:
+        raise InvalidPosting(
+            f"{label} is {value}. Incoming stock never carries value out — direction lives "
+            f"on qty_base, and goods going back to a supplier are an issue."
         )
     return value
 

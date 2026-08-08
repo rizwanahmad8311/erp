@@ -122,6 +122,48 @@ class Position:
             value_paisa=(Money(rate_paisa) * qty_base).paisa,
         )
 
+    def receive_at_value(self, qty_base: int, value_paisa: int) -> Movement:
+        """Value ``qty_base`` units coming in at a **known total cost**.
+
+        The counterpart to :meth:`receive`, for the case where what is known
+        exactly is the money rather than the rate. A supplier bills "10 cartons
+        at Rs 2,400", which is Rs 24,000 and not a paisa more; at 24 pieces to
+        the carton that is 240 pieces at Rs 100 exactly, but at a bill rate of
+        Rs 2,500 it is 240 pieces at 1041.66... paisa, and **no** integer rate
+        multiplies back to the bill.
+
+        So the total is taken as given and the rate is derived from it:
+        ``value_paisa`` is what inventory is debited and what the position is
+        summed from, and ``rate_paisa`` is the average it works out to, recorded
+        so a stock card can be read back. Where the two disagree by a paisa,
+        value is the figure that counts — the module docstring's second rule,
+        and the reason :class:`~apps.accounting.models.StockEntry` says the same
+        thing about its own columns.
+
+        The alternative — rounding the rate and letting inventory be debited
+        ``qty x rate`` — puts a few paisa into stock that nobody paid for, and
+        leaves the purchase invoice's own general ledger unable to balance
+        without a plug.
+        """
+        _assert_positive(qty_base, "qty_base")
+        if isinstance(value_paisa, bool) or not isinstance(value_paisa, int):
+            raise InvalidPosting(
+                f"value_paisa must be whole paisa as an int, got "
+                f"{type(value_paisa).__name__}: {value_paisa!r}"
+            )
+        if value_paisa < 0:
+            raise InvalidPosting(
+                f"value_paisa is {value_paisa}; incoming stock never carries value out. "
+                f"Goods going back to a supplier are an issue, not a receipt at a minus value."
+            )
+        return Movement(
+            qty_base=qty_base,
+            # The average this works out to, for the card. Rounded once, through
+            # the single rounding point, and never multiplied back out.
+            rate_paisa=round_paisa(Decimal(value_paisa) / qty_base),
+            value_paisa=value_paisa,
+        )
+
     def issue(self, qty_base: int, *, fallback_rate_paisa: int = 0) -> Movement:
         """Value ``qty_base`` units going out at the average as it stands now.
 
