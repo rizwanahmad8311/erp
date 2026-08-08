@@ -316,17 +316,13 @@ def cancel_payment(payment: Payment, *, user=None, reason: str = "") -> Payment:
     A cheque whose fate the bank has already decided cannot be cancelled here:
     there is a second document with its own entries hanging off this one, and
     reversing this one alone would leave those entries pointing at nothing.
-    Cancel the cheque event first.
+    Cancel the cheque event first. That is
+    :meth:`~apps.payments.models.Payment.dependents`, refused through the same
+    :meth:`~apps.core.models.DocumentModel.assert_cancellable` every document
+    type in the system runs at exactly this point.
     """
     payment.assert_transition(DocumentStatus.CANCELLED)
-
-    settled = payment.settled_event()
-    if settled is not None:
-        raise ChequeStateError(
-            f"{payment.code} cannot be cancelled: {settled.code} has already recorded that the "
-            f"cheque {settled.get_kind_display().lower()}. Cancel {settled.code} first, which "
-            f"reverses its entries, and then cancel this."
-        )
+    payment.assert_cancellable()
 
     reverse_entries(payment, user=user)
     payment.mark_cancelled(user=user, reason=reason)
@@ -780,8 +776,13 @@ def cancel_cheque_event(event: ChequeEvent, *, user=None, reason: str = "") -> C
     is cancelled the cheque is back to PENDING and the payment is live money
     again — which for a cancelled bounce is exactly right: the cheque was fine
     all along.
+
+    Nothing hangs off a cheque event, so ``assert_cancellable()`` never refuses
+    here. It is called anyway, because a cancel service that skips a step of the
+    contract is the one that is wrong the day the contract grows.
     """
     event.assert_transition(DocumentStatus.CANCELLED)
+    event.assert_cancellable()
     reverse_entries(event, user=user)
     event.mark_cancelled(user=user, reason=reason)
     event.save()

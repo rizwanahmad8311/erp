@@ -21,6 +21,15 @@ Every write is append-only and atomic. None of them ever updates or deletes a
 row; the two reversals in particular do not touch the entries they reverse,
 they write new ones beside them.
 
+There is one thing here that is neither a read of a balance nor a write:
+
+    preview_reversal(voucher)                    the rows a cancellation would
+                                                 write, without writing them
+
+It is not a ninth operation — it is the two reversals with the insert taken
+out, sharing their "which rows are still live" query so a cancel screen cannot
+show one set of entries and post another.
+
 The stock half deliberately mirrors the ledger half — same line-dict shape, same
 double-post refusal, same reversal rules — with one structural difference, in
 :func:`post_stock`: a ledger posting can be validated before the transaction
@@ -183,14 +192,7 @@ def reverse_entries(
         posting_date = _as_ledger_date(posting_date, label="posting_date")
 
     with transaction.atomic():
-        originals = list(
-            LedgerEntry.objects.filter(
-                voucher_type=ref.type,
-                voucher_id=ref.id,
-                is_reversal=False,
-                reversed_by__isnull=True,
-            ).order_by("pk")
-        )
+        originals = live_ledger_entries(ref)
 
         if not originals:
             posted_anything = LedgerEntry.objects.filter(
@@ -224,6 +226,145 @@ def reverse_entries(
                 for original in originals
             ]
         )
+
+
+# ---------------------------------------------------------------------------
+# What a reversal would write
+# ---------------------------------------------------------------------------
+def live_ledger_entries(ref: VoucherRef) -> list[LedgerEntry]:
+    """A voucher's ledger rows that nothing has reversed yet, oldest first.
+
+    The definition of "what a cancellation would touch", in one place, because
+    :func:`reverse_entries` and :func:`preview_reversal` disagreeing about it
+    would mean a screen showing entries that are not the ones that get written.
+    """
+    return list(
+        LedgerEntry.objects.filter(
+            voucher_type=ref.type,
+            voucher_id=ref.id,
+            is_reversal=False,
+            reversed_by__isnull=True,
+        )
+        .select_related("account")
+        .order_by("pk")
+    )
+
+
+def live_stock_entries(ref: VoucherRef) -> list[StockEntry]:
+    """The same, for the stock ledger."""
+    return list(
+        StockEntry.objects.filter(
+            voucher_type=ref.type,
+            voucher_id=ref.id,
+            is_reversal=False,
+            reversed_by__isnull=True,
+        )
+        .select_related("item", "warehouse")
+        .order_by("pk")
+    )
+
+
+class ReversalLine(NamedTuple):
+    """One ledger row a cancellation would write. Nothing is saved."""
+
+    account: Account
+    debit_paisa: int
+    credit_paisa: int
+    party_type: str | None
+    party_id: int | None
+    remarks: str
+    posting_date: date
+    #: The row being mirrored, so a screen can show the pair side by side.
+    reverses: LedgerEntry
+
+
+class ReversalStockLine(NamedTuple):
+    """One stock row a cancellation would write. Nothing is saved."""
+
+    item: object
+    warehouse: object
+    qty_base: int
+    rate_paisa: int
+    value_paisa: int
+    posting_date: date
+    reverses: StockEntry
+
+
+class ReversalPreview(NamedTuple):
+    """Exactly what cancelling a voucher would put into the two ledgers.
+
+    Read-only, and computed by mirroring the same rows :func:`reverse_entries`
+    and :func:`reverse_stock` would mirror, with the same swap: a debit becomes
+    a credit of the same paisa, a stock quantity and its value negate and the
+    rate rides across unchanged. The cancel screen renders this **before**
+    anybody confirms, so what is agreed to is what lands.
+
+    It is a read of the ledger as it stands. If somebody else cancels the same
+    document in between, the cancellation itself refuses — the preview is not a
+    reservation and does not pretend to be one.
+    """
+
+    ledger: list[ReversalLine]
+    stock: list[ReversalStockLine]
+
+    @property
+    def debit_paisa(self) -> int:
+        return sum(line.debit_paisa for line in self.ledger)
+
+    @property
+    def credit_paisa(self) -> int:
+        return sum(line.credit_paisa for line in self.ledger)
+
+    @property
+    def balances(self) -> bool:
+        """A mirror of a balanced posting is balanced. Shown, and asserted."""
+        return self.debit_paisa == self.credit_paisa
+
+    @property
+    def is_empty(self) -> bool:
+        return not self.ledger and not self.stock
+
+
+def preview_reversal(voucher) -> ReversalPreview:
+    """The rows cancelling this voucher would write. Writes nothing.
+
+    Empty when the voucher was never posted or has already been reversed —
+    which is precisely when :func:`reverse_entries` would raise
+    :class:`AlreadyReversed`, so a screen can offer the button or explain why
+    not without catching an exception to find out.
+    """
+    ref = VoucherRef.of(voucher)
+
+    ledger = [
+        ReversalLine(
+            account=original.account,
+            # The whole reversal, in two lines — the same swap reverse_entries
+            # makes, and the reason both read live_ledger_entries().
+            debit_paisa=original.credit_paisa,
+            credit_paisa=original.debit_paisa,
+            party_type=original.party_type,
+            party_id=original.party_id,
+            remarks=f"Reversal of {original.voucher_code}",
+            posting_date=original.posting_date,
+            reverses=original,
+        )
+        for original in live_ledger_entries(ref)
+    ]
+
+    stock = [
+        ReversalStockLine(
+            item=original.item,
+            warehouse=original.warehouse,
+            qty_base=-original.qty_base,
+            rate_paisa=original.rate_paisa,
+            value_paisa=-original.value_paisa,
+            posting_date=original.posting_date,
+            reverses=original,
+        )
+        for original in live_stock_entries(ref)
+    ]
+
+    return ReversalPreview(ledger=ledger, stock=stock)
 
 
 # ---------------------------------------------------------------------------
@@ -577,14 +718,7 @@ def reverse_stock(
         posting_date = _as_ledger_date(posting_date, label="posting_date")
 
     with transaction.atomic():
-        originals = list(
-            StockEntry.objects.filter(
-                voucher_type=ref.type,
-                voucher_id=ref.id,
-                is_reversal=False,
-                reversed_by__isnull=True,
-            ).order_by("pk")
-        )
+        originals = live_stock_entries(ref)
 
         if not originals:
             posted_anything = StockEntry.objects.filter(
@@ -920,11 +1054,17 @@ def _as_value_paisa(value, label: str) -> int:
 #: deliberately not a facade, so that a reader can always tell where a name
 #: comes from.
 __all__ = [
+    "ReversalLine",
+    "ReversalPreview",
+    "ReversalStockLine",
     "StockBalance",
     "account_balance",
+    "live_ledger_entries",
+    "live_stock_entries",
     "party_balance",
     "post_entries",
     "post_stock",
+    "preview_reversal",
     "reverse_entries",
     "reverse_stock",
     "stock_balance",

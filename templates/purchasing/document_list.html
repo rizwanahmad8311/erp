@@ -40,19 +40,26 @@
       </tr>
     </thead>
     <tbody>
+      {% comment %}
+        Every status, always. A cancelled document is never hidden and never
+        deleted from a list (CLAUDE.md §5) — it is the correction somebody is
+        looking for. It is marked, and its figures are struck through so nobody
+        adds them up by eye; what leaves it out of the *totals* is the ledger,
+        where its entries and their reversals net to zero.
+      {% endcomment %}
       {% for document in documents %}
-        <tr class="border-b border-gray-100">
+        <tr class="border-b border-gray-100 {% if document.status == 'CANCELLED' %}text-gray-400{% endif %}">
           <td class="py-1.5 pr-2 font-mono">
             <a href="{% url 'purchasing:detail' slug=kind.slug pk=document.pk %}"
-               class="text-brand-700 underline">{{ document.code }}</a>
+               class="{% if document.status == 'CANCELLED' %}text-gray-500{% else %}text-brand-700{% endif %} underline">{{ document.code }}</a>
           </td>
           <td class="py-1.5 pr-2">{{ document.posting_date|date:"d M Y" }}</td>
           <td class="py-1.5 pr-2">{{ document.vendor.name }}</td>
           <td class="py-1.5 pr-2">{{ document.vendor_bill_no|default:"—" }}</td>
           <td class="py-1.5 pr-2">{{ document.warehouse.code }}</td>
-          <td class="amount py-1.5 pr-2">{{ document.subtotal_paisa|money }}</td>
-          <td class="amount py-1.5 pr-2">{{ document.tax_paisa|money }}</td>
-          <td class="amount py-1.5 pr-2 font-medium">{{ document.total_paisa|money }}</td>
+          <td class="amount py-1.5 pr-2 {% if document.status == 'CANCELLED' %}line-through{% endif %}">{{ document.subtotal_paisa|money }}</td>
+          <td class="amount py-1.5 pr-2 {% if document.status == 'CANCELLED' %}line-through{% endif %}">{{ document.tax_paisa|money }}</td>
+          <td class="amount py-1.5 pr-2 font-medium {% if document.status == 'CANCELLED' %}line-through{% endif %}">{{ document.total_paisa|money }}</td>
           <td class="py-1.5">{{ document.status|doc_status }}</td>
         </tr>
       {% empty %}

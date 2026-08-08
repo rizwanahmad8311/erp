@@ -26,10 +26,33 @@
       </p>
     </div>
     <div class="flex items-center gap-3 text-sm">
+      {% comment %}
+        The audit toggle. A cancelled receipt has had its entries reversed out
+        of 1160, so counting it would break the reconciliation this page exists
+        for — it is off by default and opted into explicitly, never hidden as a
+        matter of policy (CLAUDE.md §5).
+      {% endcomment %}
+      {% if include_cancelled %}
+        <a href="{% url 'payments:cheques' %}" class="text-brand-700 underline">
+          Hide cancelled
+        </a>
+      {% else %}
+        <a href="{% url 'payments:cheques' %}?include_cancelled=1" class="text-brand-700 underline">
+          Include cancelled (audit)
+        </a>
+      {% endif %}
       <a href="{% url 'payments:recovery' %}" class="text-brand-700 underline">Recovery</a>
       <a href="{% url 'payments:list' %}" class="text-brand-700 underline">All payments</a>
     </div>
   </div>
+
+  {% if include_cancelled %}
+    <p class="mb-3 rounded border border-cancelled/40 bg-cancelled/5 px-3 py-2 text-sm">
+      Audit view: {{ cancelled_count }} cancelled receipt{{ cancelled_count|pluralize }} shown.
+      The total below still counts only the live cheques, because that is the figure
+      account 1160 has to match.
+    </p>
+  {% endif %}
 
   <table class="w-full border-collapse text-sm">
     <thead>
@@ -47,7 +70,7 @@
     </thead>
     <tbody>
       {% for payment in cheques %}
-        <tr class="border-b border-gray-100 {% if payment.cheque_date <= as_of %}bg-cancelled/5{% endif %}">
+        <tr class="border-b border-gray-100 {% if payment.status == 'CANCELLED' %}text-gray-400 line-through{% elif payment.cheque_date <= as_of %}bg-cancelled/5{% endif %}">
           <td class="py-1.5 pr-2 font-mono text-xs">{{ payment.cheque_no }}</td>
           <td class="py-1.5 pr-2 whitespace-nowrap {% if payment.cheque_date <= as_of %}font-semibold text-cancelled{% endif %}">
             {{ payment.cheque_date|date:"d M Y" }}

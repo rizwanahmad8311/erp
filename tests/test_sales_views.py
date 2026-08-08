@@ -31,7 +31,8 @@ from apps.masters.enums import Unit
 from apps.masters.models import Client, Item, Route, Seller, Vendor
 from apps.purchasing import services as purchasing
 from apps.sales import services
-from apps.sales.models import SalesInvoice, SalesInvoiceLine
+from apps.sales.models import SalesInvoice, SalesInvoiceLine, SalesReturn
+from tests.conftest import grant_cancel
 
 pytestmark = pytest.mark.django_db
 
@@ -41,9 +42,14 @@ APRIL = dt.date(2026, 4, 1)
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
+#: A reason long enough for the cancel form — see apps.core.forms.MIN_CANCEL_REASON.
+CANCEL_REASON = "Keyed twice by mistake"
+
+
 @pytest.fixture
 def operator(django_user_model, db):
-    return django_user_model.objects.create_user(username="counter", password="x", is_staff=True)
+    user = django_user_model.objects.create_user(username="counter", password="x", is_staff=True)
+    return grant_cancel(user, SalesInvoice, SalesReturn)
 
 
 @pytest.fixture
@@ -613,17 +619,45 @@ class TestLifecycleActions:
         staff_client.post(url("post", with_line))
         assert with_line.lines.get().cogs_paisa == 480_000  # 24 pieces at Rs 200
 
+    def test_the_cancel_screen_previews_the_reversing_entries_before_confirming(
+        self, staff_client, with_line
+    ):
+        staff_client.post(url("post", with_line))
+        before = LedgerEntry.objects.filter(voucher_code=with_line.code).count()
+
+        response = staff_client.get(url("cancel", with_line))
+        body = response.content.decode()
+
+        assert response.status_code == 200
+        assert "Reversing general ledger entries" in body
+        assert "Reversing stock entries" in body
+        with_line.refresh_from_db()
+        assert with_line.status == DocumentStatus.POSTED
+        assert LedgerEntry.objects.filter(voucher_code=with_line.code).count() == before
+
     def test_cancelling_reverses_both_ledgers(self, staff_client, with_line):
         staff_client.post(url("post", with_line))
-        staff_client.post(url("cancel", with_line), {"reason": "Keyed twice"})
+        staff_client.post(url("cancel", with_line), {"reason": CANCEL_REASON})
         with_line.refresh_from_db()
         assert with_line.status == DocumentStatus.CANCELLED
+        assert with_line.cancel_reason == CANCEL_REASON
         entries = LedgerEntry.objects.filter(voucher_code=with_line.code)
         assert sum(e.debit_paisa - e.credit_paisa for e in entries) == 0
 
+    def test_a_short_reason_is_refused_and_nothing_is_reversed(self, staff_client, with_line):
+        staff_client.post(url("post", with_line))
+        response = staff_client.post(url("cancel", with_line), {"reason": "oops"})
+
+        with_line.refresh_from_db()
+        assert response.status_code == 422
+        assert with_line.status == DocumentStatus.POSTED
+        assert not LedgerEntry.objects.filter(
+            voucher_code=with_line.code, is_reversal=True
+        ).exists()
+
     def test_amending_opens_the_new_draft(self, staff_client, with_line):
         staff_client.post(url("post", with_line))
-        staff_client.post(url("cancel", with_line))
+        staff_client.post(url("cancel", with_line), {"reason": CANCEL_REASON})
         response = staff_client.post(url("amend", with_line))
         amendment = SalesInvoice.objects.get(amended_from=with_line)
         assert response.url == url("detail", amendment)
@@ -634,6 +668,19 @@ class TestLifecycleActions:
         body = staff_client.get(url("detail", with_line)).content.decode()
         assert "Add line" not in body
         assert "Cancel &amp; reverse" in body
+
+    def test_the_screen_carries_the_timeline_and_gains_the_watermark(self, staff_client, with_line):
+        staff_client.post(url("post", with_line))
+        posted = staff_client.get(url("detail", with_line)).content.decode()
+        assert "Posted" in posted
+        assert "doc-watermark" not in posted
+
+        staff_client.post(url("cancel", with_line), {"reason": CANCEL_REASON})
+        cancelled = staff_client.get(url("detail", with_line)).content.decode()
+
+        assert "doc-watermark" in cancelled
+        assert CANCEL_REASON in cancelled, "the reason belongs on the timeline"
+        assert "Not yet amended" in cancelled
 
 
 # ---------------------------------------------------------------------------

@@ -18,22 +18,34 @@ import pytest
 from django.urls import reverse
 
 from apps.accounting.models import LedgerEntry, StockEntry
+from apps.core import lifecycle
 from apps.core.enums import DocumentStatus
 from apps.masters.enums import Unit
 from apps.masters.models import Item, Vendor
 from apps.purchasing import services
-from apps.purchasing.models import PurchaseInvoice, PurchaseInvoiceLine
+from apps.purchasing.models import PurchaseInvoice, PurchaseInvoiceLine, PurchaseReturn
+from tests.conftest import grant_cancel
 
 pytestmark = pytest.mark.django_db
 
 APRIL = dt.date(2026, 4, 1)
 
 
+#: A reason long enough for the cancel form. Anything shorter is refused — see
+#: apps.core.forms.MIN_CANCEL_REASON.
+CANCEL_REASON = "Supplier sent 8 cartons, not 10"
+
+
 @pytest.fixture
-def staff_client(client, django_user_model, db):
-    operator = django_user_model.objects.create_user(
+def operator(django_user_model, db):
+    user = django_user_model.objects.create_user(
         username="entry", password="entry-pass", is_staff=True
     )
+    return grant_cancel(user, PurchaseInvoice, PurchaseReturn)
+
+
+@pytest.fixture
+def staff_client(client, operator):
     client.force_login(operator)
     return client
 
@@ -393,34 +405,78 @@ class TestLifecycleActions:
         assert draft.status == DocumentStatus.DRAFT
         assert "no lines" in response.content.decode()
 
+    def test_the_cancel_screen_previews_the_reversing_entries_before_confirming(
+        self, staff_client, with_line
+    ):
+        """GET writes nothing and shows exactly what POST would write."""
+        staff_client.post(url("post", with_line))
+        before = LedgerEntry.objects.filter(voucher_code=with_line.code).count()
+
+        response = staff_client.get(url("cancel", with_line))
+        body = response.content.decode()
+
+        assert response.status_code == 200
+        assert "Reversing general ledger entries" in body
+        assert "Reversing stock entries" in body
+        with_line.refresh_from_db()
+        assert with_line.status == DocumentStatus.POSTED
+        assert LedgerEntry.objects.filter(voucher_code=with_line.code).count() == before
+
     def test_cancelling_reverses_both_ledgers(self, staff_client, with_line):
         staff_client.post(url("post", with_line))
-        staff_client.post(url("cancel", with_line), {"reason": "Wrong supplier"})
+        staff_client.post(url("cancel", with_line), {"reason": CANCEL_REASON})
         with_line.refresh_from_db()
 
         assert with_line.status == DocumentStatus.CANCELLED
-        assert with_line.cancel_reason == "Wrong supplier"
+        assert with_line.cancel_reason == CANCEL_REASON
         entries = LedgerEntry.objects.filter(voucher_code=with_line.code)
         assert sum(e.debit_paisa - e.credit_paisa for e in entries) == 0
+
+    def test_a_short_reason_is_refused_and_nothing_is_reversed(self, staff_client, with_line):
+        staff_client.post(url("post", with_line))
+        response = staff_client.post(url("cancel", with_line), {"reason": "typo"})
+
+        with_line.refresh_from_db()
+        assert response.status_code == 422
+        assert with_line.status == DocumentStatus.POSTED
+        assert not LedgerEntry.objects.filter(
+            voucher_code=with_line.code, is_reversal=True
+        ).exists()
+
+    def test_cancelling_without_the_permission_is_forbidden(
+        self, staff_client, client, django_user_model, with_line
+    ):
+        """Being able to type a bill in is not being able to reverse one."""
+        staff_client.post(url("post", with_line))
+        client.force_login(
+            django_user_model.objects.create_user(username="junior", password="x", is_staff=True)
+        )
+
+        response = client.post(url("cancel", with_line), {"reason": CANCEL_REASON})
+        with_line.refresh_from_db()
+        assert response.status_code == 403
+        assert with_line.status == DocumentStatus.POSTED
 
     def test_cancelling_a_paid_invoice_shows_which_payments_block_it(
         self, staff_client, with_line, monkeypatch
     ):
         staff_client.post(url("post", with_line))
         monkeypatch.setattr(
-            services,
+            lifecycle,
             "payment_allocations",
-            lambda document: [services.Allocation("PV-2026-000012", 100_000)],
+            lambda document: [lifecycle.Allocation("PV-2026-000012", 100_000)],
         )
 
-        response = staff_client.post(url("cancel", with_line), follow=True)
+        response = staff_client.post(
+            url("cancel", with_line), {"reason": CANCEL_REASON}, follow=True
+        )
         with_line.refresh_from_db()
         assert with_line.status == DocumentStatus.POSTED
         assert "PV-2026-000012" in response.content.decode()
 
     def test_amending_opens_the_new_draft(self, staff_client, with_line):
         staff_client.post(url("post", with_line))
-        staff_client.post(url("cancel", with_line))
+        staff_client.post(url("cancel", with_line), {"reason": CANCEL_REASON})
         response = staff_client.post(url("amend", with_line))
 
         amendment = PurchaseInvoice.objects.get(amended_from=with_line)

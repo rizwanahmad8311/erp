@@ -50,15 +50,18 @@ from django.core.exceptions import ValidationError
 from django.db import models
 from django.db.models import Exists, OuterRef, Subquery, Sum, Value
 from django.db.models.functions import Coalesce
+from django.urls import reverse
 
 from apps.accounting.enums import PartyType
 from apps.accounting.refs import PartyRef
 from apps.core.enums import DocumentStatus
 from apps.core.fields import MoneyField
+from apps.core.lifecycle import Dependent
 from apps.core.models import DocumentModel, TimeStampedModel
+from apps.core.reporting import DocumentQuerySet
 
 from .enums import ChequeEventKind, ChequeStatus, PaymentDirection, PaymentMode
-from .exceptions import InvalidPayment, NotAllocatable
+from .exceptions import ChequeSettled, InvalidPayment, NotAllocatable
 
 #: Where a party of each type is looked up. A soft link needs somewhere to
 #: resolve, and one mapping is better than ``if party_type == ...`` in six views.
@@ -150,13 +153,19 @@ def allocatable_model(invoice_type: str):
 # ===========================================================================
 # Payment
 # ===========================================================================
-class PaymentQuerySet(models.QuerySet):
-    """The two questions every payments query starts with."""
+class PaymentQuerySet(DocumentQuerySet):
+    """The two questions every payments query starts with.
+
+    Built on :class:`~apps.core.reporting.DocumentQuerySet`, so a payment answers
+    ``cancelled()`` and ``for_report()`` like every other document. It narrows
+    ``live()``, because for money "not cancelled" is not enough — see below.
+    """
 
     def live(self):
         """Payments whose money is really there: POSTED, and not bounced.
 
-        A bounced cheque leaves its payment POSTED — it is a true record of a
+        Narrower than the base ``live()``, which only excludes CANCELLED. A
+        bounced cheque leaves its payment POSTED — it is a true record of a
         cheque that was taken on a day — but the money never arrived, so the
         allocations it carries must stop settling anything. Filtering here
         rather than in each caller is what stops one report counting a bounced
@@ -300,6 +309,9 @@ class Payment(DocumentModel):
         verbose_name = "payment"
         verbose_name_plural = "payments"
         ordering = ["-posting_date", "-id"]
+        permissions = [
+            ("cancel_payment", "Can cancel a receipt or payment and reverse its entries"),
+        ]
         indexes = [
             # Every party statement, ageing row and recovery figure starts here.
             models.Index(fields=["party_type", "party_id"], name="payment_party_idx"),
@@ -339,6 +351,43 @@ class Payment(DocumentModel):
 
     def __str__(self) -> str:
         return f"{self.code} — {self.get_direction_display()} {self.amount_paisa} paisa"
+
+    def get_absolute_url(self) -> str:
+        return reverse("payments:detail", kwargs={"pk": self.pk})
+
+    # ------------------------------------------------------------------
+    # What blocks a cancellation
+    # ------------------------------------------------------------------
+    def dependents(self) -> list[Dependent]:
+        """A cheque event the bank has already caused, and nothing else.
+
+        The allocations are deliberately **not** blockers, unlike on an invoice.
+        An allocation writes no ledger row (see :class:`PaymentAllocation`), and
+        :meth:`PaymentQuerySet.live` already drops a cancelled payment out of
+        every figure — so the bills it was paying go back to being open the
+        moment it is cancelled, with nothing to unpick first.
+
+        A settled cheque is a different matter: it is a second document with its
+        own entries hanging off this one, and reversing this one alone would
+        leave those entries pointing at nothing.
+        """
+        if self.pk is None:
+            return []  # nothing can point at a row that has never been saved
+        settled = self.settled_event()
+        if settled is None:
+            return []
+        return [
+            Dependent(
+                kind="cheque event",
+                code=settled.code,
+                detail=(
+                    f"the cheque {settled.get_kind_display().lower()} on {settled.posting_date}"
+                ),
+                action=f"Cancel {settled.code} first, which reverses its entries, then cancel this.",
+                document=settled,
+                error=ChequeSettled,
+            )
+        ]
 
     # ------------------------------------------------------------------
     # Validation
@@ -717,6 +766,12 @@ class ChequeEvent(DocumentModel):
         verbose_name = "cheque event"
         verbose_name_plural = "cheque events"
         ordering = ["-posting_date", "-id"]
+        permissions = [
+            (
+                "cancel_chequeevent",
+                "Can cancel a cheque clearing or bounce and reverse its entries",
+            ),
+        ]
         constraints = [
             # Partial unique index: many drafts, at most one posted. Without it,
             # a cheque could be both cleared and bounced and every balance would
@@ -732,9 +787,24 @@ class ChequeEvent(DocumentModel):
     def __str__(self) -> str:
         return f"{self.code} — {self.get_kind_display()} ({self.posting_date})"
 
+    def get_absolute_url(self) -> str:
+        """The payment's screen. A cheque event has no page of its own — it is
+        shown, cancelled and amended from the payment it belongs to."""
+        return reverse("payments:detail", kwargs={"pk": self.payment_id})
+
     @property
     def is_bounce(self) -> bool:
         return self.kind == ChequeEventKind.BOUNCED
+
+    def dependents(self) -> list[Dependent]:
+        """Nothing depends on a cheque event.
+
+        It is the end of its own chain: a clearing or a bounce is the last thing
+        that happens to a cheque, and cancelling one simply puts the cheque back
+        to pending. Spelled out rather than inherited so the audit in
+        ``tests/test_lifecycle.py`` reads the same for every document type.
+        """
+        return []
 
     # ------------------------------------------------------------------
     # Lifecycle. The work is in services; these are the entry points.

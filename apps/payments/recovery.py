@@ -850,17 +850,29 @@ def day_totals(lines) -> tuple[int, int, int]:
     )
 
 
-def pending_cheques(*, as_of: date | None = None, route=None):
+def pending_cheques(*, as_of: date | None = None, route=None, include_cancelled: bool = False):
     """Cheques in the drawer: posted, not yet cleared, oldest cheque date first.
 
     The cheque register. Its total is what account 1160 Cheques in Hand should
-    be showing, which is a reconciliation somebody can do by eye.
+    be showing, which is a reconciliation somebody can do by eye — and the
+    reason a **cancelled** receipt is not on it by default: its entries have
+    already been reversed out of 1160, so counting it would break the one thing
+    this list is for (CLAUDE.md §5's "excluded from the figures, never deleted").
+
+    ``include_cancelled=True`` is the audit view, asked for explicitly. The
+    cancelled rows come back and the caller is expected to say on screen that
+    the total no longer matches the account.
     """
     as_of = _as_of(as_of)
     settled = ChequeEvent.objects.filter(payment_id=OuterRef("pk"), status=DocumentStatus.POSTED)
+    statuses = (
+        [DocumentStatus.POSTED, DocumentStatus.CANCELLED]
+        if include_cancelled
+        else [DocumentStatus.POSTED]
+    )
     cheques = (
         Payment.objects.filter(
-            status=DocumentStatus.POSTED,
+            status__in=statuses,
             mode=PaymentMode.CHEQUE,
             posting_date__lte=as_of,
         )

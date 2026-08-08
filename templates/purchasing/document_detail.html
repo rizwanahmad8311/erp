@@ -16,6 +16,8 @@
 {% endblock %}
 
 {% block content %}
+  {% include "core/partials/cancelled_watermark.html" %}
+
   <div class="mb-4 flex flex-wrap items-baseline justify-between gap-2">
     <div>
       <h1 class="text-xl font-semibold">
@@ -38,6 +40,8 @@
          class="text-sm text-brand-700 underline">All {{ kind.title|lower }}s</a>
     </div>
   </div>
+
+  {% include "core/partials/timeline.html" %}
 
   {% comment %} One swap target for the lines, the entry row and the posting strip, so the
      totals can never be a step behind the lines they are the total of. {% endcomment %}

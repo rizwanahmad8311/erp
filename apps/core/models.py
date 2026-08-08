@@ -18,6 +18,8 @@ from .exceptions import (
     DocumentImmutable,
     IllegalTransition,
 )
+from .lifecycle import Dependent, TimelineStep, document_timeline
+from .reporting import DocumentQuerySet
 
 
 def _actor_fk(related_name: str = "+", **kwargs):
@@ -90,6 +92,35 @@ class DocumentModel(TimeStampedModel):
     Concrete subclasses add their own party and line relations, and implement
     :meth:`post`, :meth:`cancel` and :meth:`amend`. They do not add cached
     totals that reports read — reports read the ledger (CLAUDE.md §6).
+
+    The lifecycle contract
+    ----------------------
+    Every subclass implements exactly these three signatures, and every one of
+    them delegates to a service function wrapped in ``transaction.atomic()``.
+    Two documents whose ``cancel()`` differ in shape are two documents whose
+    cancel screens will differ in behaviour, and only one of them will have been
+    tested::
+
+        def post(self, *, user=None, **options) -> Self
+        def cancel(self, *, user=None, reason: str = "") -> Self
+        def amend(self, *, user=None) -> Self
+
+    ``**options`` is where a document type puts the one extra decision its
+    posting needs — ``SalesInvoice.post(override_credit_limit=...)`` is the only
+    one today. It is keyword-only and it always has a default, so every caller
+    that knows nothing about a particular document type can still post it.
+
+    Each service does the same five things in the same order:
+
+    1. ``assert_transition()`` — refuse the move before anything is written;
+    2. the document's own preconditions (lines exist, credit limit, shape);
+    3. for a cancellation, :meth:`assert_cancellable` — refuse while something
+       still depends on this document;
+    4. the ledger and stock writes, or their reversals;
+    5. ``mark_posted()`` / ``mark_cancelled()`` and one ``save()``.
+
+    Amending never writes to a ledger at all: it clones a CANCELLED document
+    into a fresh DRAFT through :meth:`build_amendment` and returns it.
     """
 
     #: Fields a cancellation is allowed to write on an otherwise-frozen document.
@@ -136,6 +167,11 @@ class DocumentModel(TimeStampedModel):
         default=0,
         help_text="0 for an original document, 1 for its first amendment, and so on.",
     )
+
+    #: Inherited by every document, so ``live()``, ``cancelled()`` and
+    #: ``for_report()`` mean the same thing on all of them — see
+    #: :mod:`apps.core.reporting`.
+    objects = DocumentQuerySet.as_manager()
 
     class Meta:
         abstract = True
@@ -244,12 +280,15 @@ class DocumentModel(TimeStampedModel):
                 f"modified. Cancel it and post an amendment."
             )
 
-    def post(self, *, user=None):
+    def post(self, *, user=None, **options):
         """Validate, write ledger and stock entries, set POSTED.
 
         Subclasses implement this. The implementation must be wrapped in
         ``transaction.atomic()`` and must assert that debits equal credits
         before it returns (CLAUDE.md §4).
+
+        ``**options`` carries a document type's own posting decision and always
+        has a default — see the class docstring.
         """
         raise NotImplementedError(f"{type(self).__name__} must implement post()")
 
@@ -258,6 +297,8 @@ class DocumentModel(TimeStampedModel):
 
         Subclasses implement this. Reversal means writing new rows with the
         opposite sign — never updating or deleting the originals (CLAUDE.md §3).
+        Every implementation calls :meth:`assert_cancellable` before it writes
+        anything.
         """
         raise NotImplementedError(f"{type(self).__name__} must implement cancel()")
 
@@ -268,6 +309,83 @@ class DocumentModel(TimeStampedModel):
         then copy their own lines onto the result.
         """
         raise NotImplementedError(f"{type(self).__name__} must implement amend()")
+
+    # ------------------------------------------------------------------
+    # What blocks a cancellation
+    # ------------------------------------------------------------------
+    def dependents(self) -> list[Dependent]:
+        """Everything that would be left dangling if this were reversed.
+
+        Empty by default: a document with nothing hanging off it cancels freely.
+        Subclasses return :class:`~apps.core.lifecycle.Dependent` records for
+        the things that do — money allocated to an invoice, a credit note raised
+        against it, a cheque event recording what the bank did — **most specific
+        first**, because the first one names the refusal.
+
+        This is a **read**, and the cancel screen calls it directly to show what
+        blocks before anybody presses anything. It must not raise.
+        """
+        return []
+
+    def assert_cancellable(self) -> None:
+        """Raise unless nothing depends on this document.
+
+        Called at the top of every ``cancel_*`` service, before a single row is
+        written. The message names every blocker and what to do about each one;
+        the exception class comes from the first blocker, so "this invoice has
+        been paid" and "there is a credit note against it" are told apart by
+        anything that wants to catch one and not the other.
+        """
+        blockers = self.dependents()
+        if not blockers:
+            return
+
+        listed = "; ".join(str(blocker) for blocker in blockers)
+        actions = " ".join(dict.fromkeys(blocker.action for blocker in blockers if blocker.action))
+        raise blockers[0].error(
+            f"{type(self).__name__} {self.code} cannot be cancelled: {listed}. {actions}".strip(),
+            dependents=blockers,
+        )
+
+    @property
+    def may_cancel(self) -> bool:
+        """Whether cancelling would be accepted right now. For the screen only."""
+        return self.status == DocumentStatus.POSTED and not self.dependents()
+
+    @classmethod
+    def cancel_permission(cls) -> str:
+        """``"sales.cancel_salesinvoice"`` — the permission the cancel view wants.
+
+        Derived rather than spelled out per view, so a new document type cannot
+        get a cancel screen with no permission behind it by forgetting a string.
+        The permission itself is declared in each concrete model's
+        ``Meta.permissions``; :func:`tests.test_lifecycle` fails the build if one
+        is missing.
+        """
+        return f"{cls._meta.app_label}.cancel_{cls._meta.model_name}"
+
+    def user_may_cancel(self, user) -> bool:
+        """Whether this user holds the cancel permission for this document type.
+
+        ``None`` counts as allowed: a caller with no user is a management
+        command, a data migration or a test harness, all of which are already
+        trusted code. A request always has a user.
+        """
+        if user is None:
+            return True
+        return user.has_perm(self.cancel_permission())
+
+    # ------------------------------------------------------------------
+    # The timeline
+    # ------------------------------------------------------------------
+    def timeline(self) -> list[TimelineStep]:
+        """Created -> posted -> cancelled -> amended into, oldest first.
+
+        Rendered by ``templates/core/partials/timeline.html`` on every document
+        detail page. Read straight off this row and the amendment chain; nothing
+        is stored and nothing is inferred.
+        """
+        return document_timeline(self)
 
     # ------------------------------------------------------------------
     # Amendment helpers (concrete — subclass amend() builds on these)
@@ -282,6 +400,47 @@ class DocumentModel(TimeStampedModel):
                 raise IllegalTransition(f"Amendment chain for {self.code} contains a cycle.")
             seen.add(document.pk)
         return document
+
+    def amendments(self):
+        """The documents that amend this one, oldest first.
+
+        A queryset rather than the generated reverse accessor
+        (``sales_salesinvoice_amendments``), whose name changes with the app and
+        the model and so cannot be written in a shared template or a base-class
+        method. In practice there is at most one — a document is amended once,
+        and its amendment is amended after that — but this does not assume it,
+        because assuming it would silently drop the second row if it ever
+        appeared.
+        """
+        return type(self).objects.filter(amended_from_id=self.pk).order_by("pk")
+
+    def next_amendment(self):
+        """The draft that replaced this document, or ``None`` if none has."""
+        return self.amendments().first()
+
+    def chain(self) -> list[DocumentModel]:
+        """The whole amendment lineage, oldest first, this document included.
+
+        ``[SI-2026-000123, SI-2026-000123-1, SI-2026-000123-2]`` — the original
+        and every correction after it, whichever link you happen to be holding.
+        This is what the timeline walks in both directions and what the cancel
+        screen shows so nobody reverses the wrong generation of the same bill.
+
+        Walks back to the root and then forward, one query per link. Chains are
+        two or three documents long in practice; a chain long enough for that to
+        matter is a document somebody should stop amending.
+        """
+        chain = [self.root_document()]
+        seen = {chain[0].pk}
+        while True:
+            following = chain[-1].next_amendment()
+            if following is None:
+                break
+            if following.pk in seen:  # defensive: a cycle would loop forever
+                raise IllegalTransition(f"Amendment chain for {self.code} contains a cycle.")
+            seen.add(following.pk)
+            chain.append(following)
+        return chain
 
     def next_amendment_code(self) -> str:
         """``SI-2026-000123`` -> ``SI-2026-000123-1`` -> ``SI-2026-000123-2``.

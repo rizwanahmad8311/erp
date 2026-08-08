@@ -125,7 +125,22 @@ unwind. If a requirement seems to need one of these rules broken, stop and ask
   cancellation may write are listed in `DocumentModel.CANCELLATION_FIELDS`.
 - Subclasses implement `post()`, `cancel()` and `amend()`; the base raises
   `NotImplementedError` for all three. `post()` and `cancel()` must be wrapped
-  in `transaction.atomic()`.
+  in `transaction.atomic()`. The signatures are fixed and identical for every
+  document type — `post(*, user=None, **options)`,
+  `cancel(*, user=None, reason="")`, `amend(*, user=None)` — so a caller holding
+  a document it knows nothing about can still act on it.
+  `tests/test_lifecycle.py::TestTheContract` fails the build if one drifts.
+- **Every `cancel_*` calls `assert_cancellable()` before it writes.** A document
+  whose reversal would leave something else dangling — a payment allocated to
+  it, a credit note raised against it, a cheque event on it — refuses and names
+  what blocks it. Each type answers this by implementing `dependents()`.
+- Cancelling from the UI goes through `apps.core.views.cancel_view`: the
+  `<app>.cancel_<model>` permission, a typed reason of at least
+  `MIN_CANCEL_REASON` characters, and a preview of the exact reversing entries
+  shown *before* the button. Do not add a second cancel screen.
+- Cancelled documents are **never hidden from a list view and never deleted**.
+  They are watermarked on screen and on paper, and left out of *figures* by
+  `objects.live()`, with `?include_cancelled=1` as the explicit audit toggle.
 - **Amending**: a document must be CANCELLED before it can be amended — amending
   a POSTED document would double-count it, since nothing has been reversed yet.
   `build_amendment()` clones the header into a new DRAFT with `amended_from`
@@ -133,7 +148,8 @@ unwind. If a requirement seems to need one of these rules broken, stop and ask
 - Amendment codes suffix the **root** code, so a chain reads
   `SI-2026-000123` → `-1` → `-2`, never `-1-1`. The suffix comes from
   `root_document()`, not from string-munging the current code — `SI-2026-000123`
-  already ends in digits.
+  already ends in digits. `chain()` returns the whole lineage oldest-first from
+  any link in it, and `timeline()` is what every detail page renders.
 - **Never renumber a document.** A DRAFT may be deleted (it has written nothing
   to any ledger and has no reversing entries to lose); a POSTED or CANCELLED
   document may not, and `delete()` raises `DocumentImmutable` if you try.
@@ -163,6 +179,25 @@ unwind. If a requirement seems to need one of these rules broken, stop and ask
   document that owns it, and it is never the source of truth for anything.
 - If a report is slow, fix it with an index or a materialised snapshot table
   that is itself derived from the ledger — not by trusting a header field.
+- A report that reads **documents** rather than the ledger reads
+  `Model.objects.live()`, which leaves cancelled ones out. Never filter them out
+  of a *list* screen: a cancelled document is the correction somebody is looking
+  for, and hiding it is the opposite of an audit trail.
+
+## 6a. History is for masters. The ledger is the documents' history.
+
+- `django-simple-history` is registered on **`Item`, `Client`, `Vendor`,
+  `Route`, `Seller` and `Account`** and on nothing else. A master is corrected
+  in place, so without a history table "who raised this shop's credit limit"
+  has no answer.
+- **Never register a document.** A POSTED document cannot be modified at all
+  (§5) and every correction is already a reversing entry in the ledger under its
+  own date and its own user (§3). A second audit log over documents is a second
+  version of the truth, and the two eventually disagree.
+- Never register `LedgerEntry` or `StockEntry`: a row that can never change has
+  no history to keep.
+- `tests/test_lifecycle.py::TestMasterHistory` fails the build if either rule is
+  broken.
 
 ## 7. No CDN references. Anywhere.
 
@@ -238,7 +273,11 @@ erp/
 | `models.py` | `TimeStampedModel`, `AppendOnlyModel`, `DocumentModel`, `DocumentSequence` |
 | `services.py` | `get_next_code`, `peek_next_code` |
 | `enums.py` | `DocumentStatus`, `ALLOWED_STATUS_TRANSITIONS` |
-| `exceptions.py` | `DocumentImmutable`, `IllegalTransition`, `AppendOnlyViolation`, `MoneyError`, `SequenceError` |
+| `exceptions.py` | `DocumentImmutable`, `IllegalTransition`, `AppendOnlyViolation`, `DocumentHasDependents`, `PaymentAllocated`, `MoneyError`, `SequenceError` |
+| `lifecycle.py` | `Dependent`, `TimelineStep`, `document_timeline`, `payment_allocations`, `payment_dependents` |
+| `reporting.py` | `DocumentQuerySet` (`live` / `cancelled` / `for_report`), `include_cancelled_from` |
+| `forms.py` | `CancelForm`, `MIN_CANCEL_REASON` |
+| `views.py` | `cancel_view` — the cancel screen every app shares |
 | `templatetags/core_tags.py` | `\|money`, `\|qty`, `\|doc_status` |
 
 ## Conventions

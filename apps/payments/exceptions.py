@@ -10,7 +10,7 @@ Everything here inherits :class:`apps.core.exceptions.CoreError`, so a caller
 that wants to catch "any broken invariant" can do so with one ``except``.
 """
 
-from apps.core.exceptions import CoreError
+from apps.core.exceptions import CoreError, DocumentHasDependents
 from apps.core.money import fmt
 
 
@@ -74,4 +74,16 @@ class ChequeStateError(PaymentsError):
     has already cleared, or settling a cheque on a payment that was never
     posted. Every one of them would put a second set of entries against money
     that has already moved once.
+    """
+
+
+class ChequeSettled(ChequeStateError, DocumentHasDependents):
+    """Raised when a payment whose cheque the bank has settled is cancelled.
+
+    Both things at once, and deliberately: it **is** a cheque in the wrong state
+    for what was asked, and it **is** a cancellation blocked by a document
+    hanging off this one. Inheriting from both means the payments code that
+    catches ``ChequeStateError`` and the shared cancel screen that catches
+    ``DocumentHasDependents`` each keep working, and neither had to learn about
+    the other.
     """

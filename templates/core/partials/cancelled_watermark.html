@@ -1,0 +1,20 @@
+{% comment %}
+  CANCELLED, across the page, in the alarm colour.
+
+  Included on every document detail page. It renders only for a CANCELLED
+  document, so the include is unconditional at every call site and there is no
+  `{% if %}` to forget.
+
+  It survives printing — the styles live under .doc-watermark in
+  static/src/css/app.css and are deliberately NOT inside `.no-print`, because a
+  cancelled bill printed or saved to PDF without the word CANCELLED on it is a
+  cancelled bill somebody will pay.
+
+  aria-hidden and pointer-events-none: the fact is already in the status badge
+  and the timeline, so a screen reader hears it once, and the mark never gets in
+  the way of the text underneath.
+{% endcomment %}
+
+{% if document.status == "CANCELLED" %}
+  <div class="doc-watermark" aria-hidden="true">CANCELLED</div>
+{% endif %}

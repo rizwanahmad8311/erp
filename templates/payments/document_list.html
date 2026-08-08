@@ -57,9 +57,16 @@
     <tbody>
       {% for payment in payments %}
         <tr class="border-b border-gray-100">
+          {% comment %}
+            Every status, always. A cancelled receipt is never hidden and never
+            deleted from this list (CLAUDE.md §5) — it is the correction
+            somebody is looking for. It is marked and its amount is struck
+            through; what keeps it out of the figures is the ledger, where its
+            two rows and their reversals net to zero.
+          {% endcomment %}
           <td class="py-1.5 pr-2 font-mono">
             <a href="{% url 'payments:detail' pk=payment.pk %}"
-               class="text-brand-700 underline">{{ payment.code }}</a>
+               class="{% if payment.status == 'CANCELLED' %}text-gray-500{% else %}text-brand-700{% endif %} underline">{{ payment.code }}</a>
           </td>
           <td class="py-1.5 pr-2 whitespace-nowrap">{{ payment.posting_date|date:"d M Y" }}</td>
           <td class="py-1.5 pr-2">
@@ -69,7 +76,7 @@
           <td class="py-1.5 pr-2 text-xs uppercase">{{ payment.get_mode_display }}</td>
           <td class="py-1.5 pr-2">{{ payment.route.code|default:"—" }}</td>
           <td class="py-1.5 pr-2">{{ payment.collected_by.name|default:"—" }}</td>
-          <td class="amount py-1.5 pr-2 font-medium">{{ payment.amount_paisa|money }}</td>
+          <td class="amount py-1.5 pr-2 font-medium {% if payment.status == 'CANCELLED' %}line-through text-gray-400{% endif %}">{{ payment.amount_paisa|money }}</td>
           <td class="amount py-1.5 pr-2 {% if payment.unallocated_paisa %}text-posted{% else %}text-gray-400{% endif %}">
             {{ payment.unallocated_paisa|money }}
           </td>

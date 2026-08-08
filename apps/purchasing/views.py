@@ -29,11 +29,13 @@ from django.db.models import Prefetch
 from django.http import Http404
 from django.shortcuts import get_object_or_404, redirect, render
 from django.template.response import TemplateResponse
+from django.urls import reverse
 from django.utils import timezone
 from django.views.decorators.http import require_GET, require_POST
 
 from apps.core.enums import DocumentStatus
 from apps.core.exceptions import CoreError
+from apps.core.views import cancel_view
 from apps.masters.services import fmt_qty
 
 from . import services
@@ -372,18 +374,23 @@ def document_post(request, slug: str, pk: int):
 
 
 @login_required
-@require_POST
 def document_cancel(request, slug: str, pk: int):
-    """Cancel it, writing reversing rows. Refused if it has been paid."""
+    """The cancel screen: what would be reversed, then the button.
+
+    GET shows the exact reversing entries and anything blocking — an allocated
+    payment, say; POST cancels. Both live in
+    :func:`apps.core.views.cancel_view`, shared with sales and payments so the
+    permission, the reason and the preview cannot differ between three screens.
+    """
     kind = _kind(slug)
     document = _get_document(kind, pk)
-    try:
-        kind.cancel(document, user=request.user, reason=request.POST.get("reason", ""))
-    except CoreError as exc:
-        messages.error(request, str(exc))
-    else:
-        messages.success(request, f"{document.code} cancelled; its entries have been reversed.")
-    return redirect("purchasing:detail", slug=kind.slug, pk=document.pk)
+    return cancel_view(
+        request,
+        document,
+        cancel=kind.cancel,
+        back_url=reverse("purchasing:detail", kwargs={"slug": kind.slug, "pk": document.pk}),
+        title=kind.title,
+    )
 
 
 @login_required

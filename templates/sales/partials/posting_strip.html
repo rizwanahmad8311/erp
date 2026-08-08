@@ -187,17 +187,20 @@
       </form>
 
     {% elif document.status == "POSTED" %}
-      <form method="post" action="{% url 'sales:cancel' slug=kind.slug pk=document.pk %}"
-            class="flex items-center gap-2"
-            onsubmit="return confirm('Cancel this document? Reversing entries will be posted to both ledgers.');">
-        {% csrf_token %}
-        <input type="text" name="reason" placeholder="Reason"
-               class="rounded border border-gray-300 px-2 py-1.5 text-sm">
-        <button type="submit"
-                class="rounded bg-cancelled px-4 py-2 text-sm font-semibold text-white">
-          Cancel &amp; reverse
-        </button>
-      </form>
+      {% comment %}
+        A link, not a form. Cancelling goes through its own screen, which shows
+        the exact reversing entries and asks for a typed reason before anything
+        is written — see apps/core/views.py.
+      {% endcomment %}
+      <a href="{% url 'sales:cancel' slug=kind.slug pk=document.pk %}"
+         class="rounded bg-cancelled px-4 py-2 text-sm font-semibold text-white">
+        Cancel &amp; reverse…
+      </a>
+      {% if not document.may_cancel %}
+        <span class="text-sm text-cancelled">
+          Something depends on this document — the cancel screen names it.
+        </span>
+      {% endif %}
 
     {% elif document.status == "CANCELLED" %}
       <form method="post" action="{% url 'sales:amend' slug=kind.slug pk=document.pk %}">

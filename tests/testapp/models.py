@@ -35,8 +35,14 @@ class SampleDocument(DocumentModel):
     party_name = models.CharField(max_length=100, default="")
     note = models.TextField(blank=True, default="")
 
+    class Meta:
+        # Every concrete document declares its own cancel permission — see
+        # DocumentModel.cancel_permission(). Declared here too so the harness
+        # obeys the same contract the audit in tests/test_lifecycle.py enforces.
+        permissions = [("cancel_sampledocument", "Can cancel a sample document")]
+
     @transaction.atomic
-    def post(self, *, user=None):
+    def post(self, *, user=None, **options):
         self.assert_transition(DocumentStatus.POSTED)
         for line in self.lines.all():
             SampleEntry.objects.create(
@@ -52,6 +58,7 @@ class SampleDocument(DocumentModel):
     @transaction.atomic
     def cancel(self, *, user=None, reason: str = ""):
         self.assert_transition(DocumentStatus.CANCELLED)
+        self.assert_cancellable()
         for entry in SampleEntry.objects.filter(document_code=self.code, is_reversal=False):
             SampleEntry.objects.create(
                 document_code=self.code,

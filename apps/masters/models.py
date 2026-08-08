@@ -12,6 +12,25 @@ What masters *does* own is the packing arithmetic. An item knows how many pieces
 are in its carton, and that is the only fact in the system that can turn "3
 cartons" into the whole number of base units a stock row stores. The conversion
 itself lives in :mod:`apps.masters.services` and nowhere else.
+
+History
+-------
+Every model here carries ``HistoricalRecords()``, and that is deliberately the
+*only* place in the system that does. A master is edited in place — somebody
+corrects a phone number, raises a credit limit, changes a carton size — and the
+row afterwards is the only record that the row before ever said anything else.
+Without a history table, "who put this shop's limit up to Rs 400,000, and when"
+has no answer.
+
+Documents are the opposite and must **never** be registered: a POSTED document
+cannot be modified at all (CLAUDE.md §5), and every correction is a reversing
+entry that is already in the ledger under its own date and its own user
+(CLAUDE.md §3). A second audit log over documents would be a second version of
+the truth, and the two would eventually disagree.
+
+The history rows are ordinary tables with ordinary foreign keys and they hold no
+balances — a ``HistoricalClient`` has the same fields the client has, which is
+the point.
 """
 
 from __future__ import annotations
@@ -19,6 +38,7 @@ from __future__ import annotations
 from django.core.exceptions import ValidationError
 from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
+from simple_history.models import HistoricalRecords
 
 from apps.core.fields import MoneyField, QuantityField
 from apps.core.models import TimeStampedModel
@@ -188,6 +208,11 @@ class Item(TimeStampedModel):
         help_text="Deactivating keeps the item off new documents. It never hides history.",
     )
 
+    #: Rate and packing changes are the ones that get argued about later — a
+    #: carton size edited after a month of receipts changes what every quantity
+    #: on the screen means.
+    history = HistoricalRecords()
+
     class Meta:
         ordering = ["code"]
         verbose_name = "item"
@@ -320,6 +345,10 @@ class Route(TimeStampedModel):
         help_text="Deactivating keeps the route off new orders. Its clients are untouched.",
     )
 
+    #: A route that changes day changes whose round a shop is on, which is what
+    #: a recovery sheet is ordered by.
+    history = HistoricalRecords()
+
     class Meta:
         ordering = ["code"]
         verbose_name = "route"
@@ -382,6 +411,10 @@ class Seller(TimeStampedModel):
         blank=True,
         help_text="The routes this seller works. One of them may be marked primary.",
     )
+
+    #: Commission is calculated against a seller, so who they were is a question
+    #: that gets asked about a period rather than about today.
+    history = HistoricalRecords()
 
     class Meta:
         ordering = ["code"]
@@ -563,6 +596,10 @@ class Client(Party):
         help_text="The order booker who usually serves this shop. A default, not a restriction.",
     )
 
+    #: The credit limit is the field this history exists for: raising one is a
+    #: decision somebody made on a day, and the ledger has no record of it.
+    history = HistoricalRecords()
+
     class Meta(Party.Meta):
         verbose_name = "client"
         verbose_name_plural = "clients"
@@ -575,6 +612,8 @@ class Vendor(Party):
     pay — which is the whole reason ``Party`` holds the field rather than each
     subclass naming it for its own side.
     """
+
+    history = HistoricalRecords()
 
     class Meta(Party.Meta):
         verbose_name = "vendor"

@@ -29,10 +29,11 @@ from apps.masters.models import Client, Item, Route, Seller, Vendor
 from apps.payments import services
 from apps.payments.enums import ChequeStatus, PaymentDirection, PaymentMode
 from apps.payments.forms import field_name
-from apps.payments.models import Payment, PaymentAllocation
+from apps.payments.models import ChequeEvent, Payment, PaymentAllocation
 from apps.purchasing import services as purchasing
 from apps.sales import services as sales
 from apps.sales.models import SalesInvoiceLine
+from tests.conftest import grant_cancel
 
 pytestmark = pytest.mark.django_db
 
@@ -43,9 +44,14 @@ BIG_LIMIT = to_paisa("10000000")
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
+#: Long enough for the cancel form — see apps.core.forms.MIN_CANCEL_REASON.
+CANCEL_REASON = "Receipt entered against the wrong shop"
+
+
 @pytest.fixture
 def operator(django_user_model, db):
-    return django_user_model.objects.create_user(username="counter", password="x", is_staff=True)
+    user = django_user_model.objects.create_user(username="counter", password="x", is_staff=True)
+    return grant_cancel(user, Payment, ChequeEvent)
 
 
 @pytest.fixture
@@ -469,6 +475,138 @@ class TestChequeScreens:
         response = staff_client.get(as_of(reverse("payments:recovery")))
         assert response.context["flagged_count"] == 1
         assert "bounced" in response.content.decode()
+
+    def test_the_register_hides_a_cancelled_receipt_until_the_audit_toggle(
+        self, staff_client, cheque, operator
+    ):
+        """Its entries have been reversed out of 1160, so the total must not count it."""
+        services.cancel_payment(cheque, user=operator, reason=CANCEL_REASON)
+
+        plain = staff_client.get(as_of(reverse("payments:cheques")))
+        assert list(plain.context["cheques"]) == []
+        assert plain.context["total_paisa"] == 0
+        assert "Include cancelled (audit)" in plain.content.decode()
+
+        audit = staff_client.get(as_of(reverse("payments:cheques")) + "&include_cancelled=1")
+        assert list(audit.context["cheques"]) == [cheque]
+        assert audit.context["cancelled_count"] == 1
+        assert audit.context["total_paisa"] == 0, "the audit view still totals only live cheques"
+
+    def test_reversing_a_cheque_event_goes_through_the_confirmation_screen(
+        self, staff_client, cheque
+    ):
+        staff_client.post(
+            reverse("payments:cheque-clear", kwargs={"pk": cheque.pk}),
+            {"posting_date": f"{TODAY:%Y-%m-%d}"},
+        )
+        event = cheque.cheque_events.get()
+
+        url = reverse("payments:cheque-event-cancel", kwargs={"pk": event.pk})
+        preview = staff_client.get(url)
+        assert preview.status_code == 200
+        assert "Reversing general ledger entries" in preview.content.decode()
+
+        staff_client.post(url, {"reason": CANCEL_REASON})
+        cheque.refresh_from_db()
+        assert cheque.cheque_status == ChequeStatus.PENDING
+
+
+# ===========================================================================
+# Cancelling a payment
+# ===========================================================================
+class TestCancelScreen:
+    @pytest.fixture
+    def receipt(self, shop, overdue, operator):
+        return services.post_payment(
+            services.create_payment(
+                party=shop,
+                direction=PaymentDirection.RECEIVE,
+                mode=PaymentMode.CASH,
+                posting_date=TODAY,
+                amount_paisa=to_paisa("5000"),
+            ),
+            user=operator,
+        )
+
+    def _url(self, receipt):
+        return reverse("payments:cancel", kwargs={"pk": receipt.pk})
+
+    def test_it_previews_the_two_reversing_rows_and_writes_nothing(self, staff_client, receipt):
+        response = staff_client.get(self._url(receipt))
+        body = response.content.decode()
+
+        assert response.status_code == 200
+        assert "Reversing general ledger entries" in body
+        assert response.context["preview"].balances
+        assert len(response.context["preview"].ledger) == 2
+        assert response.context["preview"].stock == [], "money moving is not goods moving"
+        receipt.refresh_from_db()
+        assert receipt.status == DocumentStatus.POSTED
+
+    def test_a_typed_reason_cancels_and_reverses(self, staff_client, receipt, shop):
+        before = party_balance(PartyType.CLIENT, shop.pk).paisa
+
+        staff_client.post(self._url(receipt), {"reason": CANCEL_REASON})
+
+        receipt.refresh_from_db()
+        assert receipt.status == DocumentStatus.CANCELLED
+        assert receipt.cancel_reason == CANCEL_REASON
+        assert party_balance(PartyType.CLIENT, shop.pk).paisa == before + to_paisa("5000")
+
+    def test_a_short_reason_is_refused(self, staff_client, receipt):
+        response = staff_client.post(self._url(receipt), {"reason": "wrong"})
+        receipt.refresh_from_db()
+
+        assert response.status_code == 422
+        assert receipt.status == DocumentStatus.POSTED
+        assert "at least 10 characters" in response.content.decode()
+
+    def test_it_needs_the_cancel_permission(self, staff_client, client, django_user_model, receipt):
+        client.force_login(
+            django_user_model.objects.create_user(username="junior", password="x", is_staff=True)
+        )
+        response = client.post(self._url(receipt), {"reason": CANCEL_REASON})
+
+        receipt.refresh_from_db()
+        assert response.status_code == 403
+        assert receipt.status == DocumentStatus.POSTED
+
+    def test_a_settled_cheque_blocks_the_button_and_names_the_event(
+        self, staff_client, shop, overdue, operator
+    ):
+        payment = services.post_payment(
+            services.create_payment(
+                party=shop,
+                direction=PaymentDirection.RECEIVE,
+                mode=PaymentMode.CHEQUE,
+                posting_date=TODAY,
+                amount_paisa=to_paisa("5000"),
+                cheque_no="0091823",
+                cheque_date=TODAY,
+            ),
+            user=operator,
+        )
+        event = services.clear_cheque(payment, posting_date=TODAY, user=operator)
+
+        response = staff_client.get(self._url(payment))
+        body = response.content.decode()
+
+        assert event.code in body
+        assert "cannot be cancelled yet" in body
+        assert "disabled" in body
+
+    def test_the_detail_screen_shows_the_timeline_and_the_watermark(
+        self, staff_client, receipt, operator
+    ):
+        url = reverse("payments:detail", kwargs={"pk": receipt.pk})
+        assert "doc-watermark" not in staff_client.get(url).content.decode()
+
+        services.cancel_payment(receipt, user=operator, reason=CANCEL_REASON)
+        body = staff_client.get(url).content.decode()
+
+        assert "doc-watermark" in body
+        assert CANCEL_REASON in body, "the reason belongs on the timeline"
+        assert "Not yet amended" in body
 
 
 # ===========================================================================

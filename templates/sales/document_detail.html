@@ -21,6 +21,8 @@
 {% endblock %}
 
 {% block content %}
+  {% include "core/partials/cancelled_watermark.html" %}
+
   <div class="mb-3 flex flex-wrap items-baseline justify-between gap-2">
     <div>
       <h1 class="text-xl font-semibold">
@@ -46,6 +48,8 @@
          class="text-sm text-brand-700 underline">All {{ kind.title|lower }}s</a>
     </div>
   </div>
+
+  {% include "core/partials/timeline.html" %}
 
   {% if document.is_editable %}
     {% include "sales/partials/keyboard_help.html" %}

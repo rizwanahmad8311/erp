@@ -29,8 +29,11 @@ arithmetic rather than a tolerance.
 from __future__ import annotations
 
 from django.db import models
+from django.urls import reverse
 
+from apps.core.enums import DocumentStatus
 from apps.core.fields import MoneyField, QuantityField
+from apps.core.lifecycle import Dependent, payment_dependents
 from apps.core.models import DocumentModel
 from apps.masters.enums import Unit
 from apps.masters.services import fmt_qty
@@ -111,8 +114,23 @@ class SalesDocument(DocumentModel):
         abstract = True
         ordering = ["-posting_date", "-id"]
 
+    #: The URL slug the sales screens are parameterised by. Set per subclass, so
+    #: the shared timeline and cancel templates can link to any sales document
+    #: without knowing which type they are holding.
+    URL_SLUG = ""
+
     def __str__(self) -> str:
         return f"{self.code} — {self.client.name} ({self.get_status_display()})"
+
+    def get_absolute_url(self) -> str:
+        return reverse("sales:detail", kwargs={"slug": self.URL_SLUG, "pk": self.pk})
+
+    def dependents(self) -> list[Dependent]:
+        """Money allocated against this document.
+
+        :class:`SalesInvoice` adds the credit notes raised against it.
+        """
+        return payment_dependents(self)
 
     @property
     def line_count(self) -> int:
@@ -172,6 +190,8 @@ class SalesInvoice(SalesDocument):
         help_text="When payment falls due. Defaults to posting_date + the client's credit days.",
     )
 
+    URL_SLUG = "invoices"
+
     class Meta(SalesDocument.Meta):
         verbose_name = "sales invoice"
         verbose_name_plural = "sales invoices"
@@ -180,6 +200,7 @@ class SalesInvoice(SalesDocument):
                 "override_credit_limit",
                 "Can post a sales invoice that takes a client over their credit limit",
             ),
+            ("cancel_salesinvoice", "Can cancel a sales invoice and reverse its entries"),
         ]
 
     # ------------------------------------------------------------------
@@ -190,10 +211,10 @@ class SalesInvoice(SalesDocument):
         """How much has been received against this invoice, in paisa.
 
         **Derived, never stored** (CLAUDE.md §6), through the same seam
-        purchasing uses: ``apps.payments`` has no models yet, so this asks and
-        finds nothing rather than being hardcoded to zero.
+        purchasing uses — :func:`apps.core.lifecycle.payment_allocations`, which
+        resolves the payments app through the registry rather than importing it.
         """
-        from apps.purchasing.services import payment_allocations
+        from apps.core.lifecycle import payment_allocations
 
         return sum(allocation.amount_paisa for allocation in payment_allocations(self))
 
@@ -212,6 +233,37 @@ class SalesInvoice(SalesDocument):
         if self.posting_date is None or self.client_id is None:
             return None
         return self.posting_date + dt.timedelta(days=self.client.credit_days)
+
+    # ------------------------------------------------------------------
+    # What blocks a cancellation
+    # ------------------------------------------------------------------
+    def dependents(self) -> list[Dependent]:
+        """Credit notes raised against this invoice, then money allocated to it.
+
+        The credit note comes first because it is the harder one to undo, and
+        because it is the one this app can see for itself. A posted credit note
+        that names this invoice took its **cost** from these lines — that is
+        what ``against_invoice`` is for (see :class:`SalesReturn`) — so reversing
+        the invoice underneath it would leave the note crediting a client
+        against a sale the books no longer contain, and putting stock back at a
+        cost that came from nowhere.
+
+        Drafts are not blockers: a draft has written nothing and can simply be
+        deleted or re-pointed.
+        """
+        if self.pk is None:
+            return []  # nothing can point at a row that has never been saved
+        returns = [
+            Dependent(
+                kind="credit note",
+                code=document.code,
+                detail="raised against this invoice",
+                action="Cancel the credit note first, then cancel this.",
+                document=document,
+            )
+            for document in self.returns.filter(status=DocumentStatus.POSTED).order_by("pk")
+        ]
+        return returns + payment_dependents(self)
 
     # ------------------------------------------------------------------
     # Lifecycle. The work is in services; these are the entry points.
@@ -259,9 +311,14 @@ class SalesReturn(SalesDocument):
         ),
     )
 
+    URL_SLUG = "returns"
+
     class Meta(SalesDocument.Meta):
         verbose_name = "sales return"
         verbose_name_plural = "sales returns"
+        permissions = [
+            ("cancel_salesreturn", "Can cancel a credit note and reverse its entries"),
+        ]
 
     def post(self, *, user=None):
         from .services import post_sales_return

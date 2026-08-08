@@ -13,6 +13,14 @@
 {% block title %}{{ payment.code }}{% endblock %}
 
 {% block content %}
+  {% comment %}
+    The watermark and the timeline both read `document`, so a payment is handed
+    to them under that name. One partial, one contract, every document type.
+  {% endcomment %}
+  {% with document=payment %}
+    {% include "core/partials/cancelled_watermark.html" %}
+  {% endwith %}
+
   <div class="mb-3 flex flex-wrap items-baseline justify-between gap-2">
     <div>
       <h1 class="text-xl font-semibold">
@@ -32,6 +40,10 @@
       <a href="{% url 'payments:recovery' %}" class="text-sm text-brand-700 underline">Recovery</a>
     </div>
   </div>
+
+  {% with document=payment %}
+    {% include "core/partials/timeline.html" %}
+  {% endwith %}
 
   <div class="grid gap-4 lg:grid-cols-3">
 
@@ -133,18 +145,11 @@
               </form>
             </div>
           </div>
-        {% elif cheque.event %}
-          <form method="post"
-                action="{% url 'payments:cheque-event-cancel' pk=cheque.event.pk %}"
-                class="mt-2 flex items-center gap-2"
-                onsubmit="return confirm('Reverse this cheque event? The cheque goes back to pending.');">
-            {% csrf_token %}
-            <input type="text" name="reason" placeholder="Reason"
-                   class="rounded border border-gray-300 px-2 py-1.5 text-sm">
-            <button type="submit" class="rounded border border-gray-300 px-3 py-2 text-sm">
-              Reverse {{ cheque.event.code }}
-            </button>
-          </form>
+        {% elif cheque.event and cheque.event.status == "POSTED" %}
+          <a href="{% url 'payments:cheque-event-cancel' pk=cheque.event.pk %}"
+             class="mt-2 inline-block rounded border border-gray-300 px-3 py-2 text-sm">
+            Reverse {{ cheque.event.code }}…
+          </a>
         {% endif %}
       {% endif %}
     </div>
@@ -269,17 +274,20 @@
           </button>
         </form>
       {% endif %}
-      <form method="post" action="{% url 'payments:cancel' pk=payment.pk %}"
-            class="flex items-center gap-2"
-            onsubmit="return confirm('Cancel this payment? Reversing entries will be posted.');">
-        {% csrf_token %}
-        <input type="text" name="reason" placeholder="Reason"
-               class="rounded border border-gray-300 px-2 py-1.5 text-sm">
-        <button type="submit"
-                class="rounded bg-cancelled px-4 py-2 text-sm font-semibold text-white">
-          Cancel &amp; reverse
-        </button>
-      </form>
+      {% comment %}
+        A link, not a form. Cancelling goes through its own screen, which shows
+        the two reversing rows and asks for a typed reason before anything is
+        written — see apps/core/views.py.
+      {% endcomment %}
+      <a href="{% url 'payments:cancel' pk=payment.pk %}"
+         class="rounded bg-cancelled px-4 py-2 text-sm font-semibold text-white">
+        Cancel &amp; reverse…
+      </a>
+      {% if not payment.may_cancel %}
+        <span class="text-sm text-cancelled">
+          The bank has already settled this cheque — the cancel screen names the event.
+        </span>
+      {% endif %}
 
     {% elif payment.status == "CANCELLED" %}
       <form method="post" action="{% url 'payments:amend' pk=payment.pk %}">

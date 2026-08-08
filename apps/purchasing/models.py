@@ -29,9 +29,11 @@ of the time; it is arithmetic.
 from __future__ import annotations
 
 from django.db import models
+from django.urls import reverse
 
 from apps.core.enums import DocumentStatus
 from apps.core.fields import MoneyField, QuantityField
+from apps.core.lifecycle import Dependent, payment_dependents
 from apps.core.models import DocumentModel
 from apps.masters.enums import Unit
 from apps.masters.services import fmt_qty
@@ -104,8 +106,17 @@ class PurchaseDocument(DocumentModel):
         abstract = True
         ordering = ["-posting_date", "-id"]
 
+    #: The URL slug the purchase screens are parameterised by. Set per subclass;
+    #: :meth:`get_absolute_url` is the only thing that reads it, so the shared
+    #: timeline and cancel templates can link to any document without knowing
+    #: which type they are holding.
+    URL_SLUG = ""
+
     def __str__(self) -> str:
         return f"{self.code} — {self.vendor.name} ({self.get_status_display()})"
+
+    def get_absolute_url(self) -> str:
+        return reverse("purchasing:detail", kwargs={"slug": self.URL_SLUG, "pk": self.pk})
 
     # ------------------------------------------------------------------
     # Reading the lines
@@ -113,6 +124,18 @@ class PurchaseDocument(DocumentModel):
     @property
     def line_count(self) -> int:
         return self.lines.count()
+
+    # ------------------------------------------------------------------
+    # What blocks a cancellation
+    # ------------------------------------------------------------------
+    def dependents(self) -> list[Dependent]:
+        """Money allocated against this document, and nothing else.
+
+        A purchase document has no returns raised *against* it the way a sales
+        invoice does — a purchase return is its own document with its own stock
+        movement and no link back — so the payments are the whole of it.
+        """
+        return payment_dependents(self)
 
     def assert_has_lines(self) -> None:
         """Raise unless there is something to post.
@@ -141,9 +164,14 @@ class PurchaseInvoice(PurchaseDocument):
     * Dr Inventory, Dr Tax Payable, Cr Accounts Payable, Cr Discount Received.
     """
 
+    URL_SLUG = "invoices"
+
     class Meta(PurchaseDocument.Meta):
         verbose_name = "purchase invoice"
         verbose_name_plural = "purchase invoices"
+        permissions = [
+            ("cancel_purchaseinvoice", "Can cancel a purchase invoice and reverse its entries"),
+        ]
         constraints = [
             # The supplier's own bill number, once per supplier. Entering the
             # same bill twice is the most expensive mistake available on this
@@ -174,13 +202,12 @@ class PurchaseInvoice(PurchaseDocument):
         is a number that can disagree with the payments, and once it has
         disagreed for a week nobody can tell you which of the two is right.
 
-        Today this is zero for every invoice, because ``apps.payments`` has no
-        models yet. It is not hardcoded to zero — it asks
-        :func:`~apps.purchasing.services.payment_allocations`, which looks the
-        allocation model up through the app registry and finds nothing. The day
-        payments lands, this starts returning real figures with no change here.
+        It asks :func:`apps.core.lifecycle.payment_allocations`, which resolves
+        the payments app through the registry rather than importing it — so
+        purchasing never depends on payments, and the same seam answers the
+        identical question for a sales invoice.
         """
-        from .services import payment_allocations
+        from apps.core.lifecycle import payment_allocations
 
         return sum(allocation.amount_paisa for allocation in payment_allocations(self))
 
@@ -221,9 +248,14 @@ class PurchaseReturn(PurchaseDocument):
     :func:`~apps.purchasing.services.post_purchase_return`.
     """
 
+    URL_SLUG = "returns"
+
     class Meta(PurchaseDocument.Meta):
         verbose_name = "purchase return"
         verbose_name_plural = "purchase returns"
+        permissions = [
+            ("cancel_purchasereturn", "Can cancel a purchase return and reverse its entries"),
+        ]
         constraints = [
             models.UniqueConstraint(
                 fields=["vendor", "vendor_bill_no"],

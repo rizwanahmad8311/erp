@@ -48,6 +48,10 @@ INSTALLED_APPS = [
     "django.contrib.sessions",
     "django.contrib.messages",
     "django.contrib.staticfiles",
+    # Row history for MASTER data only — see apps/masters/models.py. Documents
+    # are deliberately not registered: the ledger is already their audit log and
+    # a POSTED one cannot change (CLAUDE.md §3, §5).
+    "simple_history",
     # Local apps. Ledger-bearing apps depend on core + accounting, so they are
     # listed after them.
     "apps.core",
@@ -71,6 +75,11 @@ MIDDLEWARE = [
     "django.contrib.auth.middleware.AuthenticationMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
+    # Puts the logged-in user onto each historical master row. It must come
+    # after AuthenticationMiddleware, which is what puts the user on the
+    # request in the first place. Without it a master edited through a screen
+    # records what changed and not who changed it.
+    "simple_history.middleware.HistoryRequestMiddleware",
 ]
 
 ROOT_URLCONF = "config.urls"

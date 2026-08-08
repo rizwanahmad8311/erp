@@ -25,7 +25,6 @@ header level, so ``header == sum(lines)`` is arithmetic, not a tolerance.
 from __future__ import annotations
 
 from datetime import date
-from typing import NamedTuple
 
 from django.db import transaction
 
@@ -49,7 +48,12 @@ from apps.accounting.services import (
 )
 from apps.accounting.valuation import Position
 from apps.core.enums import DocumentStatus
-from apps.core.money import Money, fmt
+
+# The seam between a document and the money applied to it. It lives in core
+# because sales asks the identical question — see apps.core.lifecycle — and is
+# re-exported here so a purchasing caller keeps having one import.
+from apps.core.lifecycle import Allocation, payment_allocations
+from apps.core.money import Money
 from apps.core.services import get_next_code
 
 # The line arithmetic is masters', not purchasing's: every argument to it is an
@@ -64,7 +68,6 @@ from apps.masters.pricing import (
 )
 
 from .enums import PURCHASE_INVOICE_PREFIX, PURCHASE_RETURN_PREFIX
-from .exceptions import PaymentAllocated
 from .models import (
     PurchaseInvoice,
     PurchaseInvoiceLine,
@@ -298,10 +301,12 @@ def cancel_purchase_invoice(
     originals (CLAUDE.md §3). What it will not do is cancel an invoice that
     money has been allocated against — the payment is a different document with
     its own rows, and reversing this one would leave that payment sitting
-    against a supplier balance with no invoice under it.
+    against a supplier balance with no invoice under it. That check is
+    :meth:`~apps.core.models.DocumentModel.assert_cancellable`, which every
+    document type in the system runs at exactly this point.
     """
     invoice.assert_transition(DocumentStatus.CANCELLED)
-    assert_not_paid(invoice)
+    invoice.assert_cancellable()
 
     reverse_stock(invoice, user=user)
     reverse_entries(invoice, user=user)
@@ -387,7 +392,7 @@ def cancel_purchase_return(
 ) -> PurchaseReturn:
     """Reverse everything this return wrote. Refuses if it has been settled."""
     document.assert_transition(DocumentStatus.CANCELLED)
-    assert_not_paid(document)
+    document.assert_cancellable()
 
     reverse_stock(document, user=user)
     reverse_entries(document, user=user)
@@ -438,63 +443,15 @@ def preview_return_cost_paisa(document) -> int:
 # ===========================================================================
 # Payments
 # ===========================================================================
-class Allocation(NamedTuple):
-    """One payment applied to one purchase document.
-
-    The shape :func:`payment_allocations` returns and the only thing this app
-    knows about a payment: what it is called, and how much of it landed here.
-    """
-
-    code: str
-    amount_paisa: int
-
-
-def payment_allocations(document) -> list[Allocation]:
-    """Every payment allocated against this document.
-
-    The seam between purchasing and payments, and the reason
-    :attr:`~apps.purchasing.models.PurchaseInvoice.paid_paisa` is a property
-    rather than a column (CLAUDE.md §6).
-
-    ``apps.payments`` has no models yet, so this returns an empty list today —
-    by *asking* and finding nothing, not by being hardcoded. The contract it
-    asks for is one function::
-
-        # apps/payments/services.py
-        def allocations_for(document) -> Iterable[Allocation]: ...
-
-    The day that exists, ``paid_paisa`` starts returning real figures and
-    cancellation starts refusing paid invoices, with no change in this app.
-    """
-    try:
-        from apps.payments import services as payments_services
-    except ImportError:
-        return []
-
-    resolver = getattr(payments_services, "allocations_for", None)
-    if resolver is None:
-        return []
-    return [Allocation(str(item.code), int(item.amount_paisa)) for item in resolver(document)]
-
-
 def assert_not_paid(document) -> None:
     """Raise unless nothing has been allocated against this document.
 
-    The message names the payments, because "unallocate the payment first" is
-    only actionable if you can see which payment.
+    Kept as a named entry point because "is this bill paid" is a question worth
+    asking on its own, but it is no longer a check purchasing owns: it is
+    :meth:`~apps.core.models.DocumentModel.assert_cancellable`, whose blockers
+    for a purchase document are exactly the allocated payments.
     """
-    allocations = payment_allocations(document)
-    if not allocations:
-        return
-
-    named = ", ".join(f"{a.code} ({fmt(a.amount_paisa)})" for a in allocations)
-    total = sum(a.amount_paisa for a in allocations)
-    raise PaymentAllocated(
-        f"{type(document).__name__} {document.code} cannot be cancelled: {fmt(total)} is "
-        f"allocated against it by {named}. Unallocate {'them' if len(allocations) > 1 else 'it'} "
-        f"first, then cancel.",
-        payments=allocations,
-    )
+    document.assert_cancellable()
 
 
 # ===========================================================================

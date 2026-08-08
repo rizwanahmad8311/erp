@@ -16,3 +16,7 @@ django-environ>=0.11
 whitenoise>=6.7
 waitress>=3.0
 reportlab>=4.2
+# Row history for MASTER data only — items, parties, routes, sellers, accounts.
+# Never for documents: the ledger is already their audit log (CLAUDE.md §3).
+# Pure-Python wheel (py3-none-any), so the Windows install stays pip-only.
+django-simple-history>=3.7

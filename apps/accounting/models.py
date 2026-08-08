@@ -26,6 +26,7 @@ from __future__ import annotations
 
 from django.core.exceptions import ValidationError
 from django.db import models
+from simple_history.models import HistoricalRecords
 
 from apps.core.exceptions import AppendOnlyViolation
 from apps.core.fields import MoneyField, QuantityField
@@ -83,6 +84,15 @@ class Account(TimeStampedModel):
         default=True,
         help_text="Deactivating blocks new postings. It never hides or alters history.",
     )
+
+    #: An account is a **master**, and the only one outside apps.masters — which
+    #: is why the history lives here and why the two ledgers next door do not
+    #: have one. Every entry ever posted is filed under this row's ``type`` and
+    #: its place in the tree, so "when did 5420 stop being a child of 5400" is a
+    #: question with real money behind it. The ledger cannot answer it: the rows
+    #: only hold the account id. See apps/masters/models.py for why documents
+    #: are deliberately not registered.
+    history = HistoricalRecords()
 
     class Meta:
         ordering = ["code"]

@@ -15,6 +15,7 @@ admin displays, it does not do arithmetic.
 
 from django.contrib import admin
 from django.db.models import Count
+from simple_history.admin import SimpleHistoryAdmin
 from unfold.admin import ModelAdmin, TabularInline
 
 from apps.core.money import fmt
@@ -25,6 +26,19 @@ from .models import Client, Item, ItemCategory, Route, RouteSeller, Seller, Vend
 #: are never typed in.
 AUDIT_FIELDS = ("created_at", "created_by", "updated_at", "updated_by")
 AUDIT_FIELDSET = ("Audit", {"fields": AUDIT_FIELDS, "classes": ["collapse"]})
+
+
+class HistoryModelAdmin(SimpleHistoryAdmin, ModelAdmin):
+    """Unfold's admin, plus the row-history screen for a master.
+
+    Order matters: ``SimpleHistoryAdmin`` first, so its ``history_view`` and its
+    "History" button win, and ``ModelAdmin`` second, so every Unfold template
+    and widget still applies. The other way round gives an Unfold page with no
+    history on it, which looks fine and is the bug.
+
+    Only the models that carry ``HistoricalRecords()`` use this. ``ItemCategory``
+    and ``RouteSeller`` deliberately do not — see apps/masters/models.py.
+    """
 
 
 # ===========================================================================
@@ -57,7 +71,7 @@ class ItemCategoryAdmin(ModelAdmin):
 
 
 @admin.register(Item)
-class ItemAdmin(ModelAdmin):
+class ItemAdmin(HistoryModelAdmin):
     """The item master, with packing and the two default rates on one screen.
 
     Deleting an item that has stock movement is impossible regardless of what is
@@ -155,7 +169,7 @@ class RouteSellerBySellerInline(RouteSellerInline):
 
 
 @admin.register(Route)
-class RouteAdmin(ModelAdmin):
+class RouteAdmin(HistoryModelAdmin):
     """The delivery beats, with the shop count that decides whether one needs splitting."""
 
     list_display = ("code", "name", "day", "client_count", "seller_names", "is_active")
@@ -203,7 +217,7 @@ class RouteAdmin(ModelAdmin):
 
 
 @admin.register(Seller)
-class SellerAdmin(ModelAdmin):
+class SellerAdmin(HistoryModelAdmin):
     """The order bookers. Not Django users — most of them never log in."""
 
     list_display = ("code", "name", "phone", "route_names", "client_count", "is_active")
@@ -306,7 +320,7 @@ CONTACT_FIELDSET = (
 
 
 @admin.register(Client)
-class ClientAdmin(PartyAdminMixin, ModelAdmin):
+class ClientAdmin(PartyAdminMixin, HistoryModelAdmin):
     """The shops. Filterable by route and by seller, which is how a day's work is found."""
 
     list_display = (
@@ -341,7 +355,7 @@ class ClientAdmin(PartyAdminMixin, ModelAdmin):
 
 
 @admin.register(Vendor)
-class VendorAdmin(PartyAdminMixin, ModelAdmin):
+class VendorAdmin(PartyAdminMixin, HistoryModelAdmin):
     """The suppliers. Same shape as a client, minus the beat.
 
     ``credit_days`` reads the other way round here: it is how long we have to

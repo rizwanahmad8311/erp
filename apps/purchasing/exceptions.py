@@ -10,7 +10,14 @@ Everything here inherits :class:`apps.core.exceptions.CoreError`, so a caller
 that wants to catch "any broken invariant" can do so with one ``except``.
 """
 
-from apps.core.exceptions import CoreError
+# Raised when a document with money allocated against it is cancelled. It lives
+# in core because it is not a purchasing rule — sales raises the identical
+# refusal on the identical seam — and is re-exported here because this is where
+# a purchasing caller looks for it.
+from apps.core.exceptions import (
+    CoreError,
+    PaymentAllocated,  # noqa: F401
+)
 
 # Raised by apps.masters.pricing.compute_line, which purchasing calls for every
 # line. Re-exported so `from apps.purchasing.exceptions import InvalidLine`
@@ -29,23 +36,3 @@ class EmptyDocument(PurchasingError):
     Posting one would put a code and a vendor into the system with nothing
     behind them, and it would sit in the payables list forever at zero.
     """
-
-
-class PaymentAllocated(PurchasingError):
-    """Raised when a document with money allocated against it is cancelled.
-
-    Cancelling writes reversing rows for everything the document posted. The
-    payment is a **different** document with its own rows, and reversing this
-    one would leave that payment sitting against a supplier balance that no
-    longer has an invoice under it — money paid against nothing.
-
-    The message names the payments, because "unallocate the payment first" is
-    only actionable if you can see which payment.
-
-    Carries the payment references as an attribute as well as in the message so
-    a view can link to them rather than re-deriving the list.
-    """
-
-    def __init__(self, message: str, *, payments=()):
-        self.payments = list(payments)
-        super().__init__(message)

@@ -20,6 +20,7 @@ from apps.accounting.enums import PartyType
 from apps.accounting.exceptions import AlreadyPosted, AlreadyReversed
 from apps.accounting.models import LedgerEntry, StockEntry
 from apps.accounting.services import account_balance, party_balance, stock_balance
+from apps.core import lifecycle
 from apps.core.enums import DocumentStatus
 from apps.core.exceptions import DocumentImmutable, IllegalTransition
 from apps.core.money import Money, to_paisa
@@ -376,21 +377,21 @@ class TestCancelIsBlockedWhenPaid:
 
     @pytest.fixture
     def paid(self, monkeypatch):
-        """Stand in for apps.payments, which has no models yet.
+        """Two payments against this invoice, without going through payments.
 
-        ``payment_allocations`` is the documented seam: it asks
-        ``apps.payments.services.allocations_for`` and finds nothing today. This
-        patches the seam itself, so the guard is exercised exactly as it will be
-        the day payments lands.
+        ``apps.core.lifecycle.payment_allocations`` is the documented seam: it
+        asks ``apps.payments.services.allocations_for`` and hands back what it
+        finds. Patching the seam itself exercises the guard exactly as a real
+        allocation does, and keeps this file about purchasing.
         """
 
         def two_payments(document):
             return [
-                services.Allocation(code="PV-2026-000012", amount_paisa=1_500_000),
-                services.Allocation(code="PV-2026-000031", amount_paisa=800_000),
+                lifecycle.Allocation(code="PV-2026-000012", amount_paisa=1_500_000),
+                lifecycle.Allocation(code="PV-2026-000031", amount_paisa=800_000),
             ]
 
-        monkeypatch.setattr(services, "payment_allocations", two_payments)
+        monkeypatch.setattr(lifecycle, "payment_allocations", two_payments)
 
     def test_it_refuses(self, posted_invoice, paid, user):
         with pytest.raises(PaymentAllocated):
@@ -403,7 +404,10 @@ class TestCancelIsBlockedWhenPaid:
         message = str(caught.value)
         assert "PV-2026-000012" in message
         assert "PV-2026-000031" in message
-        assert "23,000.00" in message  # the allocated total, so it can be checked
+        # Each payment with its own figure, so the refusal can be checked
+        # against the payments themselves rather than against a sum of them.
+        assert "15,000.00" in message
+        assert "8,000.00" in message
 
     def test_the_payments_are_available_to_a_view_without_re_deriving_them(
         self, posted_invoice, paid, user
@@ -442,9 +446,9 @@ class TestPaidPaisaIsDerived:
 
     def test_it_sums_the_allocations_when_there_are_some(self, posted_invoice, monkeypatch):
         monkeypatch.setattr(
-            services,
+            lifecycle,
             "payment_allocations",
-            lambda document: [services.Allocation("PV-1", 2_820_000)],
+            lambda document: [lifecycle.Allocation("PV-1", 2_820_000)],
         )
         assert posted_invoice.paid_paisa == 2_820_000
         assert posted_invoice.outstanding_paisa == 0

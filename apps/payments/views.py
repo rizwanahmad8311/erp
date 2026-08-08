@@ -29,12 +29,15 @@ from django.db.models import Q
 from django.http import Http404
 from django.shortcuts import get_object_or_404, redirect, render
 from django.template.response import TemplateResponse
+from django.urls import reverse
 from django.utils import timezone
 from django.views.decorators.http import require_GET, require_POST
 
 from apps.accounting.enums import PartyType
 from apps.core.enums import DocumentStatus
 from apps.core.exceptions import CoreError
+from apps.core.reporting import include_cancelled_from
+from apps.core.views import cancel_view
 from apps.masters.models import Client
 
 from . import recovery, services
@@ -338,17 +341,31 @@ def cheque_register(request):
     The total on this page is what account 1160 Cheques in Hand should be
     showing — a reconciliation somebody can do by eye, which is the point of
     keeping cheques out of Bank in the first place.
+
+    A cancelled receipt is **not** in the drawer and is left out, because the
+    total has to equal an account balance and a cancelled payment's entries have
+    already been reversed out of it. ``?include_cancelled=1`` puts the cancelled
+    cheques back on the page for somebody reconciling by hand; the total then
+    says so rather than pretending to match 1160.
     """
     as_of = _as_of(request)
-    cheques = services.attach_parties(recovery.pending_cheques(as_of=as_of))
+    include_cancelled = include_cancelled_from(request)
+    cheques = services.attach_parties(
+        recovery.pending_cheques(as_of=as_of, include_cancelled=include_cancelled)
+    )
+    live = [payment for payment in cheques if payment.status == DocumentStatus.POSTED]
     return render(
         request,
         "payments/cheque_register.html",
         {
             "cheques": cheques,
             "as_of": as_of,
-            "total_paisa": sum(payment.amount_paisa for payment in cheques),
-            "due_count": sum(1 for payment in cheques if payment.cheque_date <= as_of),
+            "include_cancelled": include_cancelled,
+            # Summed over the live ones only, whichever rows are on screen: the
+            # figure this page exists to reconcile is an account balance.
+            "total_paisa": sum(payment.amount_paisa for payment in live),
+            "cancelled_count": len(cheques) - len(live),
+            "due_count": sum(1 for payment in live if payment.cheque_date <= as_of),
         },
     )
 
@@ -450,16 +467,22 @@ def payment_post(request, pk: int):
 
 
 @login_required
-@require_POST
 def payment_cancel(request, pk: int):
+    """The cancel screen: what would be reversed, then the button.
+
+    The same screen the sales and purchase documents use — see
+    :func:`apps.core.views.cancel_view`. A payment reverses two ledger rows and
+    no stock, so the stock half of the preview is simply empty.
+    """
     payment = _payment(pk)
-    try:
-        services.cancel_payment(payment, user=request.user, reason=request.POST.get("reason", ""))
-    except CoreError as exc:
-        messages.error(request, str(exc))
-    else:
-        messages.success(request, f"{payment.code} cancelled; its entries have been reversed.")
-    return redirect("payments:detail", pk=payment.pk)
+    services.attach_parties([payment])
+    return cancel_view(
+        request,
+        payment,
+        cancel=services.cancel_payment,
+        back_url=reverse("payments:detail", kwargs={"pk": payment.pk}),
+        title=payment.get_direction_display(),
+    )
 
 
 @login_required
@@ -588,19 +611,22 @@ def cheque_bounce(request, pk: int):
 
 
 @login_required
-@require_POST
 def cheque_event_cancel(request, pk: int):
-    """Reverse a clearing or a bounce that was recorded in error."""
+    """Reverse a clearing or a bounce that was recorded in error.
+
+    Through the same confirmation screen as everything else: what the reversal
+    would write, a reason, and the ``payments.cancel_chequeevent`` permission. A
+    cheque event has no page of its own, so both the way out and the way back
+    are the payment's screen.
+    """
     event = get_object_or_404(ChequeEvent.objects.select_related("payment"), pk=pk)
-    try:
-        services.cancel_cheque_event(
-            event, user=request.user, reason=request.POST.get("reason", "")
-        )
-    except CoreError as exc:
-        messages.error(request, str(exc))
-    else:
-        messages.success(request, f"{event.code} reversed; the cheque is pending again.")
-    return redirect("payments:detail", pk=event.payment_id)
+    return cancel_view(
+        request,
+        event,
+        cancel=services.cancel_cheque_event,
+        back_url=reverse("payments:detail", kwargs={"pk": event.payment_id}),
+        title=f"{event.get_kind_display().lower()} cheque event",
+    )
 
 
 # ===========================================================================

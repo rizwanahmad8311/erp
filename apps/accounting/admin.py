@@ -8,6 +8,7 @@ well-meaning person can do both in three clicks.
 """
 
 from django.contrib import admin
+from simple_history.admin import SimpleHistoryAdmin
 from unfold.admin import ModelAdmin
 
 from apps.core.money import fmt
@@ -16,11 +17,17 @@ from .models import Account, LedgerEntry, StockEntry, Warehouse
 
 
 @admin.register(Account)
-class AccountAdmin(ModelAdmin):
+class AccountAdmin(SimpleHistoryAdmin, ModelAdmin):
     """Editable, with the structural rules enforced by ``Account.clean()``.
 
     Deleting an account that has entries is impossible regardless of what is
     clicked here: the ledger's foreign key is ``PROTECT``.
+
+    ``SimpleHistoryAdmin`` first and Unfold's ``ModelAdmin`` second, so the
+    History button wins and the Unfold templates still apply — the same order
+    ``apps.masters.admin.HistoryModelAdmin`` uses, and for the same reason. The
+    two ledgers below get no history screen and must not: they are append-only
+    and a row that never changes has no history to show.
     """
 
     list_display = ("code", "name", "type", "parent", "is_group", "is_active")

@@ -1,0 +1,202 @@
+{% extends "base.html" %}
+{% load core_tags %}
+
+{% comment %}
+  The cancel confirmation screen, shared by every document type — see
+  apps/core/views.py.
+
+  It shows the exact reversing rows BEFORE the button, built by
+  accounting.services.preview_reversal, which mirrors the same live rows the
+  cancellation itself mirrors. What is agreed to here is what lands.
+
+  Nothing on this page is computed in the browser.
+{% endcomment %}
+
+{% block title %}Cancel {{ document.code }}{% endblock %}
+
+{% block content %}
+  <div class="mb-4">
+    <h1 class="text-xl font-semibold">
+      Cancel {{ title|lower }} <span class="font-mono">{{ document.code }}</span>
+    </h1>
+    <p class="text-sm text-gray-600">
+      Cancelling writes <strong>reversing</strong> entries into both ledgers. Nothing already
+      posted is changed or deleted — the original rows stay exactly where they are, and the
+      pair nets to zero.
+    </p>
+  </div>
+
+  {# ------------------------------------------------------ what blocks it #}
+  {% if blockers %}
+    <div class="mb-4 rounded border-2 border-cancelled bg-cancelled/5 p-3">
+      <h2 class="text-sm font-semibold uppercase tracking-wide text-cancelled">
+        This document cannot be cancelled yet
+      </h2>
+      <p class="mt-1 text-sm text-gray-700">
+        Something else is hanging off it. Cancelling this one alone would leave that other
+        document pointing at entries the books no longer contain.
+      </p>
+      <table class="mt-2 w-full text-sm">
+        <tbody>
+          {% for blocker in blockers %}
+            <tr class="border-b border-cancelled/20">
+              <td class="py-1 pr-2 text-xs uppercase tracking-wide text-gray-500">
+                {{ blocker.kind }}
+              </td>
+              <td class="py-1 pr-2 font-mono text-xs">
+                {% if blocker.document %}
+                  <a class="underline" href="{{ blocker.document.get_absolute_url }}">{{ blocker.code }}</a>
+                {% else %}
+                  {{ blocker.code }}
+                {% endif %}
+              </td>
+              <td class="py-1 pr-2">{{ blocker.detail }}</td>
+              <td class="py-1 text-gray-600">{{ blocker.action }}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% endif %}
+
+  <div class="grid gap-4 lg:grid-cols-2">
+
+    {# ------------------------------------------------ the reversing ledger #}
+    <div>
+      <h2 class="mb-1 text-xs font-semibold uppercase tracking-wide text-gray-600">
+        Reversing general ledger entries
+      </h2>
+      {% if preview.ledger %}
+        <table class="w-full text-sm">
+          <thead>
+            <tr class="border-b border-gray-300 text-left text-xs uppercase tracking-wide text-gray-500">
+              <th class="py-1 pr-2">Account</th>
+              <th class="py-1 pr-2">Date</th>
+              <th class="py-1 pr-2 text-right">Debit</th>
+              <th class="py-1 text-right">Credit</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for line in preview.ledger %}
+              <tr class="border-b border-gray-100">
+                <td class="py-0.5 pr-2">
+                  <span class="font-mono text-xs text-gray-500">{{ line.account.code }}</span>
+                  {{ line.account.name }}
+                </td>
+                <td class="py-0.5 pr-2 text-xs text-gray-500">
+                  {{ line.posting_date|date:"d M Y" }}
+                </td>
+                <td class="amount py-0.5 pr-2">{{ line.debit_paisa|money }}</td>
+                <td class="amount py-0.5">{{ line.credit_paisa|money }}</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+          <tfoot>
+            <tr class="border-t border-gray-800 font-semibold">
+              <td class="py-1 pr-2" colspan="2">
+                {% if preview.balances %}
+                  Balanced
+                {% else %}
+                  <span class="text-cancelled">OUT OF BALANCE</span>
+                {% endif %}
+              </td>
+              <td class="amount py-1 pr-2">{{ preview.debit_paisa|money }}</td>
+              <td class="amount py-1">{{ preview.credit_paisa|money }}</td>
+            </tr>
+          </tfoot>
+        </table>
+        <p class="mt-1 text-xs text-gray-500">
+          Each row is the mirror of one the document posted: a debit reversed by a credit of
+          the same paisa, on the same date, against the same account.
+        </p>
+      {% else %}
+        <p class="text-sm text-gray-500">
+          Nothing to reverse — this document has no live ledger entries.
+        </p>
+      {% endif %}
+    </div>
+
+    {# ------------------------------------------------- the reversing stock #}
+    <div>
+      <h2 class="mb-1 text-xs font-semibold uppercase tracking-wide text-gray-600">
+        Reversing stock entries
+      </h2>
+      {% if preview.stock %}
+        <table class="w-full text-sm">
+          <thead>
+            <tr class="border-b border-gray-300 text-left text-xs uppercase tracking-wide text-gray-500">
+              <th class="py-1 pr-2">Item</th>
+              <th class="py-1 pr-2">Warehouse</th>
+              <th class="py-1 pr-2 text-right">Qty</th>
+              <th class="py-1 pr-2 text-right">Rate</th>
+              <th class="py-1 text-right">Value</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for line in preview.stock %}
+              <tr class="border-b border-gray-100">
+                <td class="py-0.5 pr-2">
+                  <span class="font-mono text-xs text-gray-500">{{ line.item.code }}</span>
+                  {{ line.item.name }}
+                </td>
+                <td class="py-0.5 pr-2 text-xs">{{ line.warehouse.code }}</td>
+                <td class="amount py-0.5 pr-2">{{ line.qty_base|qty }}</td>
+                <td class="amount py-0.5 pr-2">{{ line.rate_paisa|money }}</td>
+                <td class="amount py-0.5">{{ line.value_paisa|money }}</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+        <p class="mt-1 text-xs text-gray-500">
+          Quantity and value both flip; the rate is a fact about the original movement and
+          rides across unchanged, so the stock goes back at exactly what it left at.
+        </p>
+      {% else %}
+        <p class="text-sm text-gray-500">
+          Nothing to reverse — this document moved no stock.
+        </p>
+      {% endif %}
+    </div>
+  </div>
+
+  {# --------------------------------------------------------- the amendment chain #}
+  {% if chain|length > 1 %}
+    <p class="mt-4 text-xs text-gray-500">
+      This document is part of an amendment chain:
+      {% for link in chain %}
+        <a class="font-mono underline" href="{{ link.get_absolute_url }}">{{ link.code }}</a>{% if not forloop.last %} → {% endif %}
+      {% endfor %}
+    </p>
+  {% endif %}
+
+  {# ---------------------------------------------------------- confirmation #}
+  <form method="post" class="mt-6 max-w-2xl border-t-2 border-gray-800 pt-4">
+    {% csrf_token %}
+
+    {% if form.reason.errors %}
+      <p class="mb-2 rounded border border-cancelled/40 bg-cancelled/10 px-2 py-1 text-sm text-cancelled">
+        {{ form.reason.errors|join:" " }}
+      </p>
+    {% endif %}
+
+    <label class="block text-sm font-medium" for="{{ form.reason.id_for_label }}">
+      {{ form.reason.label }}
+    </label>
+    <div class="mt-1">{{ form.reason }}</div>
+    <p class="mt-1 text-xs text-gray-500">
+      Written onto the document forever and shown on its timeline. At least
+      {{ form.reason.field.min_length }} characters.
+    </p>
+
+    <div class="mt-3 flex flex-wrap items-center gap-3">
+      <button type="submit"
+              class="rounded bg-cancelled px-4 py-2 text-sm font-semibold text-white disabled:opacity-40"
+              {% if blockers %}disabled{% endif %}>
+        Cancel {{ title|lower }} &amp; post the reversal
+      </button>
+      <a href="{{ back_url }}" class="text-sm text-brand-700 underline">
+        Leave it alone
+      </a>
+    </div>
+  </form>
+{% endblock %}

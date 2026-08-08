@@ -431,11 +431,15 @@ def cancel_sales_invoice(invoice: SalesInvoice, *, user=None, reason: str = "") 
     exactly as it was — the reversal puts the stock back at the rate it went out
     at, so the cost that was recorded is the cost that was unwound, and rubbing
     it out would destroy the only record of what the sale actually cost.
-    """
-    from apps.purchasing.services import assert_not_paid
 
+    Refused while anything still hangs off it — money allocated to it, or a
+    posted credit note raised against it. Both are
+    :meth:`~apps.sales.models.SalesInvoice.dependents`, checked through the same
+    :meth:`~apps.core.models.DocumentModel.assert_cancellable` every document
+    type in the system runs at exactly this point.
+    """
     invoice.assert_transition(DocumentStatus.CANCELLED)
-    assert_not_paid(invoice)
+    invoice.assert_cancellable()
 
     reverse_stock(invoice, user=user)
     reverse_entries(invoice, user=user)
@@ -524,11 +528,13 @@ def post_sales_return(document: SalesReturn, *, user=None) -> SalesReturn:
 
 @transaction.atomic
 def cancel_sales_return(document: SalesReturn, *, user=None, reason: str = "") -> SalesReturn:
-    """Reverse everything this credit note wrote."""
-    from apps.purchasing.services import assert_not_paid
+    """Reverse everything this credit note wrote.
 
+    Refused while a refund has been allocated against it — the payment is a
+    different document and reversing this one would leave it settling nothing.
+    """
     document.assert_transition(DocumentStatus.CANCELLED)
-    assert_not_paid(document)
+    document.assert_cancellable()
 
     reverse_stock(document, user=user)
     reverse_entries(document, user=user)

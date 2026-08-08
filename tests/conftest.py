@@ -8,6 +8,7 @@ from types import SimpleNamespace
 
 import pytest
 from django.contrib.auth import get_user_model
+from django.contrib.auth.models import Permission
 
 
 @pytest.fixture
@@ -17,6 +18,25 @@ def user(db):
         password="operator-pass",
         email="operator@example.test",
     )
+
+
+def grant_cancel(user, *models):
+    """Give ``user`` the ``<app>.cancel_<model>`` permission for each model.
+
+    Cancelling is permissioned per document type — see
+    :meth:`apps.core.models.DocumentModel.cancel_permission`. A test that drives
+    a cancel *screen* needs the permission; a test that drives the *service*
+    does not, because the service is trusted code and the permission is a rule
+    about who may reach it from a browser.
+
+    Returns the user, and clears the permission cache so a user who has already
+    been asked ``has_perm`` sees the new grant.
+    """
+    codenames = [model.cancel_permission().split(".", 1)[1] for model in models]
+    user.user_permissions.add(*Permission.objects.filter(codename__in=codenames))
+    for cache in ("_perm_cache", "_user_perm_cache", "_group_perm_cache"):
+        user.__dict__.pop(cache, None)
+    return user
 
 
 @pytest.fixture

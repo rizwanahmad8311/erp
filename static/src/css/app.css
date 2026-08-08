@@ -44,10 +44,52 @@
     text-align: right;
     font-family: var(--font-mono);
   }
+
+  /* CANCELLED, across a cancelled document, in the alarm colour.
+   *
+   * Fixed rather than absolute so it stays put while the page scrolls: a
+   * cancelled invoice is often long, and a watermark that scrolls off the top
+   * is a watermark that is only on the first screenful.
+   *
+   * pointer-events: none is load-bearing — the mark covers the whole viewport,
+   * and without it nothing underneath could be clicked.
+   */
+  .doc-watermark {
+    position: fixed;
+    inset: 0;
+    z-index: 10;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    pointer-events: none;
+    user-select: none;
+    font-weight: 800;
+    letter-spacing: 0.15em;
+    font-size: clamp(3rem, 16vw, 12rem);
+    color: var(--color-cancelled);
+    opacity: 0.12;
+    transform: rotate(-24deg);
+  }
 }
 
 @media print {
   .no-print {
     display: none !important;
+  }
+
+  /* The watermark prints, and printing is how this system makes a PDF. A
+   * cancelled bill on paper without the word CANCELLED on it is a cancelled
+   * bill somebody will pay.
+   *
+   * position: fixed inside a print context puts it on every page, which is
+   * what a multi-page invoice needs. The opacity is raised because laser
+   * output loses light tints, and a mono printer renders the alarm colour as
+   * grey — still unmistakable at this size. */
+  .doc-watermark {
+    position: fixed;
+    opacity: 0.2;
+    color: var(--color-cancelled);
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
   }
 }
