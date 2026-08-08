@@ -163,13 +163,31 @@ class TestAppRegistry:
         apps = settings.INSTALLED_APPS
         assert apps.index("unfold") < apps.index("django.contrib.admin")
 
-    def test_no_domain_models_exist_yet(self):
-        """core may hold infrastructure (DocumentSequence); the domain apps hold
-        nothing at all until their models are designed."""
+    def test_accounting_holds_the_chart_and_the_ledger(self):
+        """Everything else in the system is derived from these two tables."""
+        from django.apps import apps as django_apps
+
+        accounting_models = {
+            m.__name__ for m in django_apps.get_app_config("accounting").get_models()
+        }
+        assert accounting_models == {"Account", "LedgerEntry"}, (
+            f"accounting should hold the chart and the ledger, found: {sorted(accounting_models)}"
+        )
+
+    def test_the_ledger_is_append_only(self):
+        """The guard is inherited, not re-implemented per model, so it cannot
+        drift between LedgerEntry and the StockEntry that comes later."""
+        from apps.accounting.models import LedgerEntry
+        from apps.core.models import AppendOnlyModel
+
+        assert issubclass(LedgerEntry, AppendOnlyModel)
+
+    def test_no_other_domain_models_exist_yet(self):
+        """core may hold infrastructure (DocumentSequence); the remaining domain
+        apps hold nothing at all until their models are designed."""
         from django.apps import apps as django_apps
 
         domain_labels = {
-            "accounting",
             "masters",
             "purchasing",
             "sales",
