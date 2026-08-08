@@ -9,6 +9,7 @@ hardcode a credential in this file.
 from pathlib import Path
 
 import environ
+from django.urls import reverse_lazy
 
 # erp/config/settings/base.py -> erp/
 BASE_DIR = Path(__file__).resolve().parents[2]
@@ -152,11 +153,151 @@ MEDIA_ROOT = BASE_DIR / "media"
 # --------------------------------------------------------------------------
 # Unfold admin
 # --------------------------------------------------------------------------
+# The sidebar is grouped by what a person is doing rather than by Django app
+# label, because "masters", "transactions", "accounting", "reports" and "setup"
+# is how the office already talks about the work. The app a model happens to
+# live in is an implementation detail nobody in the office should have to learn.
+#
+# Because the navigation is spelled out, "show_all_applications" is off: a model
+# that is registered but not listed here is invisible, which is deliberate. Add
+# the link when you add the model.
+#
+# reverse_lazy, not reverse: the URL conf is not loaded while settings are being
+# read.
+
+
+def _staff(request) -> bool:
+    """Sidebar entries are for people who can open the admin at all."""
+    return request.user.is_active and request.user.is_staff
+
+
 UNFOLD = {
     "SITE_TITLE": "Distribution ERP",
     "SITE_HEADER": "Distribution ERP",
     "SHOW_HISTORY": True,
     "SHOW_VIEW_ON_SITE": False,
+    "SIDEBAR": {
+        "show_search": True,
+        "show_all_applications": False,
+        "navigation": [
+            {
+                "title": "Masters",
+                "separator": True,
+                "items": [
+                    {
+                        "title": "Items",
+                        "icon": "inventory_2",
+                        "link": reverse_lazy("admin:masters_item_changelist"),
+                        "permission": _staff,
+                    },
+                    {
+                        "title": "Item categories",
+                        "icon": "category",
+                        "link": reverse_lazy("admin:masters_itemcategory_changelist"),
+                        "permission": _staff,
+                    },
+                    {
+                        "title": "Clients",
+                        "icon": "storefront",
+                        "link": reverse_lazy("admin:masters_client_changelist"),
+                        "permission": _staff,
+                    },
+                    {
+                        "title": "Vendors",
+                        "icon": "local_shipping",
+                        "link": reverse_lazy("admin:masters_vendor_changelist"),
+                        "permission": _staff,
+                    },
+                    {
+                        "title": "Routes",
+                        "icon": "route",
+                        "link": reverse_lazy("admin:masters_route_changelist"),
+                        "permission": _staff,
+                    },
+                    {
+                        "title": "Sellers",
+                        "icon": "badge",
+                        "link": reverse_lazy("admin:masters_seller_changelist"),
+                        "permission": _staff,
+                    },
+                    {
+                        "title": "Route sellers",
+                        "icon": "hub",
+                        "link": reverse_lazy("admin:masters_routeseller_changelist"),
+                        "permission": _staff,
+                    },
+                ],
+            },
+            {
+                # Sales orders, invoices, deliveries, purchase receipts, bills,
+                # receipts and payments land here as each app's documents arrive.
+                "title": "Transactions",
+                "separator": True,
+                "items": [],
+            },
+            {
+                "title": "Accounting",
+                "separator": True,
+                "items": [
+                    {
+                        "title": "Chart of accounts",
+                        "icon": "account_tree",
+                        "link": reverse_lazy("admin:accounting_account_changelist"),
+                        "permission": _staff,
+                    },
+                    {
+                        "title": "Ledger entries",
+                        "icon": "receipt_long",
+                        "link": reverse_lazy("admin:accounting_ledgerentry_changelist"),
+                        "permission": _staff,
+                    },
+                    {
+                        "title": "Stock entries",
+                        "icon": "inventory",
+                        "link": reverse_lazy("admin:accounting_stockentry_changelist"),
+                        "permission": _staff,
+                    },
+                    {
+                        "title": "Warehouses",
+                        "icon": "warehouse",
+                        "link": reverse_lazy("admin:accounting_warehouse_changelist"),
+                        "permission": _staff,
+                    },
+                ],
+            },
+            {
+                # Ageing, recovery, stock position and the day book land here.
+                # apps.reports aggregates the ledger; it holds no models of its own.
+                "title": "Reports",
+                "separator": True,
+                "items": [],
+            },
+            {
+                "title": "Setup",
+                "separator": True,
+                "items": [
+                    {
+                        "title": "Document sequences",
+                        "icon": "tag",
+                        "link": reverse_lazy("admin:core_documentsequence_changelist"),
+                        "permission": _staff,
+                    },
+                    {
+                        "title": "Users",
+                        "icon": "person",
+                        "link": reverse_lazy("admin:auth_user_changelist"),
+                        "permission": lambda request: request.user.is_superuser,
+                    },
+                    {
+                        "title": "Groups",
+                        "icon": "group",
+                        "link": reverse_lazy("admin:auth_group_changelist"),
+                        "permission": lambda request: request.user.is_superuser,
+                    },
+                ],
+            },
+        ],
+    },
 }
 
 

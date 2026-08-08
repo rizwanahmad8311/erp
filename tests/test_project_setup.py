@@ -189,15 +189,51 @@ class TestAppRegistry:
         assert issubclass(LedgerEntry, AppendOnlyModel)
         assert issubclass(StockEntry, AppendOnlyModel)
 
-    def test_masters_holds_only_what_the_stock_ledger_needs(self):
-        """Item exists because StockEntry points a foreign key at it. The rest
-        of masters — UOM, parties, routes, sellers — arrives with the app that
-        owns it, not in advance of it."""
+    def test_masters_holds_the_master_data_and_no_balances(self):
+        """Items, categories, parties, routes and sellers — and nothing else.
+
+        Documents live in the transaction apps and the two ledgers live in
+        accounting. A model appearing here that records a *movement* rather than
+        a *thing* is the first step towards a balance being cached on a master,
+        which CLAUDE.md §6 forbids.
+        """
         from django.apps import apps as django_apps
 
         masters_models = {m.__name__ for m in django_apps.get_app_config("masters").get_models()}
-        assert masters_models == {"Item"}, (
-            f"masters should hold only the item master so far, found: {sorted(masters_models)}"
+        assert masters_models == {
+            "Item",
+            "ItemCategory",
+            "Client",
+            "Vendor",
+            "Route",
+            "Seller",
+            "RouteSeller",
+        }, f"unexpected masters models: {sorted(masters_models)}"
+
+    def test_no_master_caches_a_balance_or_a_stock_level(self):
+        """The rule that stops masters quietly becoming a second ledger.
+
+        Every balance, every outstanding and every stock level is aggregated
+        from LedgerEntry and StockEntry (CLAUDE.md §6). ``opening_balance_paisa``
+        is the one permitted exception and is not a balance: it is what the
+        operator typed at go-live, read by the opening voucher and by nothing
+        else.
+        """
+        from django.apps import apps as django_apps
+
+        allowed = {"opening_balance_paisa", "credit_limit_paisa"}
+        banned = ("balance", "outstanding", "stock", "on_hand", "total")
+        offenders = [
+            f"{model.__name__}.{field.name}"
+            for model in django_apps.get_app_config("masters").get_models()
+            for field in model._meta.get_fields()
+            if getattr(field, "attname", None)
+            and field.name not in allowed
+            and any(needle in field.name for needle in banned)
+        ]
+        assert not offenders, (
+            f"Masters must not cache ledger-derived figures: {offenders}. "
+            f"Aggregate from the ledger instead."
         )
 
     def test_no_other_domain_models_exist_yet(self):
