@@ -1,15 +1,25 @@
 """
-Chart of accounts and the append-only general ledger.
+Chart of accounts, the append-only general ledger, and the append-only stock
+ledger that sits beside it.
 
 :class:`LedgerEntry` is the source of truth for every figure this system will
-ever print. Nothing else is. There is no cached balance field on an account, on
-a party, or on a document header, and there must never be one (CLAUDE.md §6) —
-a cached total is a number that can disagree with the ledger, and once one has
-disagreed for a week nobody can tell you which of the two is right.
+ever print, and :class:`StockEntry` is the source of truth for every quantity
+and every rupee of inventory value. Nothing else is. There is no cached balance
+field on an account, on a party, on an item or on a document header, and there
+must never be one (CLAUDE.md §6) — a cached total is a number that can disagree
+with the ledger, and once one has disagreed for a week nobody can tell you which
+of the two is right.
 
 The rows are therefore append-only (CLAUDE.md §3): written once, never updated,
-never deleted. A correction is a new row with the sides swapped, pointing at the
-row it reverses.
+never deleted. A correction is a new row that mirrors what it reverses.
+
+The two ledgers are the same shape and are deliberately not the same in one
+place: a ledger row is a non-negative amount on one of two sides, while a stock
+row is a **signed** quantity and a **signed** value. Money has debits and
+credits, which are directions with names; stock has in and out, which are the
+same direction with a sign. Forcing stock into two columns would mean every
+balance query summing two fields and subtracting, and every valuation doing it
+again.
 """
 
 from __future__ import annotations
@@ -18,11 +28,17 @@ from django.core.exceptions import ValidationError
 from django.db import models
 
 from apps.core.exceptions import AppendOnlyViolation
-from apps.core.fields import MoneyField
+from apps.core.fields import MoneyField, QuantityField
 from apps.core.models import AppendOnlyModel, TimeStampedModel
 
 from .enums import AccountType, PartyType, account_sign
-from .exceptions import GroupAccountPosting, InactiveAccount, InvalidAccount, InvalidPosting
+from .exceptions import (
+    GroupAccountPosting,
+    InactiveAccount,
+    InvalidAccount,
+    InvalidPosting,
+    InvalidWarehouse,
+)
 
 
 class Account(TimeStampedModel):
@@ -469,3 +485,356 @@ class LedgerEntry(AppendOnlyModel):
     def signed_paisa(self) -> int:
         """``debit - credit``. A raw figure; it carries no account sign."""
         return self.debit_paisa - self.credit_paisa
+
+
+# ===========================================================================
+# Stock
+# ===========================================================================
+class Warehouse(TimeStampedModel):
+    """Somewhere stock is held: the shop, the godown, a delivery van.
+
+    A master record like :class:`Account` — editable, not append-only — and
+    like an account it is the thing entries hang off, so ``PROTECT`` on the
+    stock ledger's foreign key means one that has movement cannot be deleted.
+
+    Valuation is per ``(item, warehouse)``, never per item alone. Two
+    warehouses that received the same item at different costs hold it at
+    different rates, and averaging across them would value a van's stock at the
+    godown's cost the moment either one was topped up.
+    """
+
+    code = models.CharField(
+        max_length=16,
+        unique=True,
+        help_text="Stable identifier, e.g. MAIN. Sorting by code gives report order.",
+    )
+    name = models.CharField(max_length=128)
+    is_default = models.BooleanField(
+        default=False,
+        help_text="The warehouse a document uses when it does not name one. At most one.",
+    )
+
+    class Meta:
+        ordering = ["code"]
+        verbose_name = "warehouse"
+        verbose_name_plural = "warehouses"
+        constraints = [
+            # Partial unique index: many rows may be False, only one may be
+            # True. Without it "the default warehouse" is whichever row the
+            # database felt like returning first, and stock lands somewhere
+            # nobody chose.
+            models.UniqueConstraint(
+                fields=["is_default"],
+                condition=models.Q(is_default=True),
+                name="warehouse_one_default",
+                violation_error_message="Another warehouse is already the default.",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.code} — {self.name}"
+
+    @classmethod
+    def get_default(cls) -> Warehouse:
+        """The warehouse flagged ``is_default``.
+
+        Raises rather than returning ``None``: a caller that reached for the
+        default has no second plan, and a silent ``None`` becomes a stock row
+        with no warehouse a few frames later.
+        """
+        warehouse = cls.objects.filter(is_default=True).first()
+        if warehouse is None:
+            raise InvalidWarehouse(
+                "No warehouse is marked as the default. Flag one, or name the warehouse "
+                "explicitly on the document."
+            )
+        return warehouse
+
+    def _assert_single_default(self) -> None:
+        """The constraint above, raised in Python first so it reads as a sentence."""
+        if not self.is_default:
+            return
+        clash = Warehouse.objects.filter(is_default=True).exclude(pk=self.pk).first()
+        if clash is not None:
+            raise InvalidWarehouse(
+                f"{clash.code} ({clash.name}) is already the default warehouse. "
+                f"Clear that flag before setting it here — there is exactly one default."
+            )
+
+    def clean(self):
+        """Surface :meth:`_assert_single_default` as a form error in the admin."""
+        super().clean()
+        try:
+            self._assert_single_default()
+        except InvalidWarehouse as exc:
+            raise ValidationError(str(exc)) from exc
+
+    def save(self, *args, **kwargs):
+        self._assert_single_default()
+        return super().save(*args, **kwargs)
+
+
+class StockEntryQuerySet(models.QuerySet):
+    """The same doors :class:`LedgerEntryQuerySet` closes, on the stock ledger.
+
+    Same reasoning: ``AppendOnlyModel`` guards the routes a person takes
+    deliberately, and the bulk routes are the ones taken by accident.
+    """
+
+    def update(self, **kwargs):
+        raise AppendOnlyViolation(
+            "StockEntry is append-only; QuerySet.update() would rewrite posted history. "
+            "Post a reversing entry with accounting.services.reverse_stock() instead."
+        )
+
+    def delete(self):
+        raise AppendOnlyViolation(
+            "StockEntry is append-only; QuerySet.delete() would erase posted history. "
+            "Post a reversing entry with accounting.services.reverse_stock() instead."
+        )
+
+
+class StockEntryManager(models.Manager.from_queryset(StockEntryQuerySet)):
+    """Manager for :class:`StockEntry`. Inserts only."""
+
+    def bulk_update(self, *args, **kwargs):
+        raise AppendOnlyViolation("StockEntry is append-only; bulk_update() is not available.")
+
+    def bulk_create(self, objs, *args, **kwargs):
+        # post_stock writes through here. update_conflicts turns the INSERT
+        # into an UPSERT, which is an UPDATE wearing a hat.
+        if kwargs.get("update_conflicts"):
+            raise AppendOnlyViolation(
+                "StockEntry is append-only; bulk_create(update_conflicts=True) would "
+                "rewrite existing rows."
+            )
+        return super().bulk_create(objs, *args, **kwargs)
+
+
+class StockEntry(AppendOnlyModel):
+    """One item moving into or out of one warehouse. Written once, never changed.
+
+    Signed, unlike :class:`LedgerEntry`: ``qty_base`` is positive coming in and
+    negative going out, and ``value_paisa`` carries the same sign. See the
+    module docstring for why the two ledgers differ here.
+
+    ``rate_paisa`` is the cost of one base unit **as it stood when this row was
+    written** — what the goods cost on the way in, and the moving weighted
+    average on the way out. It is stored rather than derived so that a stock
+    card can be read back years later without replaying every movement before
+    it, and so that a back-dated entry can never silently re-value what was
+    already posted.
+
+    Where rounding makes ``qty_base * rate_paisa`` disagree with
+    ``value_paisa`` by a paisa or two, **value_paisa is the figure that counts**
+    — it is what balances sum, and it is computed so that issuing a whole
+    position empties it exactly. See :mod:`apps.accounting.valuation`.
+
+    The link back to the document is soft — a type name, an id and a
+    denormalised code, no foreign key — for the same reason the ledger's is:
+    the row must outlive any of the dozen document models that write it. The
+    item and the warehouse are *not* soft: a movement without an item is not a
+    movement, and PROTECT is what stops one being deleted out from under its
+    history.
+    """
+
+    objects = StockEntryManager()
+
+    posting_date = models.DateField(
+        db_index=True,
+        help_text="The day this hits the stock card. Not the day the row was written.",
+    )
+    item = models.ForeignKey(
+        "masters.Item",
+        on_delete=models.PROTECT,
+        related_name="stock_entries",
+        help_text="PROTECT: an item with movement cannot be deleted out from under it.",
+    )
+    warehouse = models.ForeignKey(
+        Warehouse,
+        on_delete=models.PROTECT,
+        related_name="stock_entries",
+        help_text="PROTECT: a warehouse with movement cannot be deleted out from under it.",
+    )
+
+    qty_base = QuantityField(
+        help_text="Signed base units: positive in, negative out. Never fractional.",
+    )
+    rate_paisa = MoneyField(
+        non_negative=True,
+        help_text="Cost of one base unit at the moment this row was written.",
+    )
+    value_paisa = MoneyField(
+        help_text="Signed cost value moved. The figure balances are summed from.",
+    )
+
+    voucher_type = models.CharField(
+        max_length=64,
+        help_text='The document model name, e.g. "SalesInvoice".',
+    )
+    voucher_id = models.BigIntegerField()
+    voucher_code = models.CharField(
+        max_length=32,
+        help_text="Denormalised document code, so reports never join to find it.",
+    )
+
+    is_reversal = models.BooleanField(default=False)
+    reverses = models.ForeignKey(
+        "self",
+        null=True,
+        blank=True,
+        on_delete=models.PROTECT,
+        related_name="reversed_by",
+        help_text="The row this one cancels out. Set on reversals, NULL otherwise.",
+    )
+
+    class Meta:
+        verbose_name = "stock entry"
+        verbose_name_plural = "stock entries"
+        ordering = ["posting_date", "id"]
+        indexes = [
+            # The valuation query: "this item, in this warehouse, up to this
+            # date". Every balance, every rate and every posting reads it.
+            models.Index(
+                fields=["item", "warehouse", "posting_date"],
+                name="stock_item_wh_date_idx",
+            ),
+            # An item across every warehouse — the stock position report. The
+            # index above cannot serve it: warehouse sits between the two
+            # columns being filtered.
+            models.Index(fields=["item", "posting_date"], name="stock_item_date_idx"),
+            # Finding a voucher's rows, which is what reversal does.
+            models.Index(fields=["voucher_type", "voucher_id"], name="stock_voucher_idx"),
+        ]
+        constraints = [
+            # A row that moves nothing is not a movement. It would sit in the
+            # stock card claiming something happened and contribute nothing,
+            # which is worse than not being there.
+            models.CheckConstraint(
+                name="stockentry_qty_is_not_zero",
+                condition=~models.Q(qty_base=0),
+                violation_error_message="A stock entry moves a non-zero quantity.",
+            ),
+            models.CheckConstraint(
+                name="stockentry_rate_non_negative",
+                condition=models.Q(rate_paisa__gte=0),
+                violation_error_message="A cost rate is never negative.",
+            ),
+            # Quantity and value move together or the balance stops meaning
+            # anything: no putting quantity in while taking value out.
+            models.CheckConstraint(
+                name="stockentry_value_follows_qty",
+                condition=(
+                    models.Q(qty_base__gt=0, value_paisa__gte=0)
+                    | models.Q(qty_base__lt=0, value_paisa__lte=0)
+                ),
+                violation_error_message="Quantity and value must move in the same direction.",
+            ),
+            models.CheckConstraint(
+                name="stockentry_reversal_points_at_something",
+                condition=(
+                    models.Q(is_reversal=True, reverses__isnull=False)
+                    | models.Q(is_reversal=False, reverses__isnull=True)
+                ),
+                violation_error_message="A reversal names the row it reverses; nothing else does.",
+            ),
+            # The database's own answer to double reversal. reverse_stock
+            # refuses it in Python with a readable error; this makes it
+            # impossible even if two cancellations race.
+            models.UniqueConstraint(
+                fields=["reverses"],
+                condition=models.Q(reverses__isnull=False),
+                name="stockentry_one_reversal_per_row",
+                violation_error_message="That entry has already been reversed.",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        direction = "in" if self.qty_base > 0 else "out"
+        return (
+            f"{self.posting_date} item={self.item_id} wh={self.warehouse_id} "
+            f"{direction} {abs(self.qty_base)} @ {self.rate_paisa} ({self.voucher_code})"
+        )
+
+    # ------------------------------------------------------------------
+    # Append-only
+    # ------------------------------------------------------------------
+    def save(self, *args, **kwargs):
+        """Validate an insert, then hand over to the append-only guard.
+
+        Identical in shape to :meth:`LedgerEntry.save`, and identical in
+        reasoning: validation is scoped to the insert, because telling someone
+        editing posted history that their quantities are wrong invites them to
+        fix the quantities and try again. The real answer is that the row is
+        permanent.
+
+        :meth:`assert_valid` does not run on the ``bulk_create`` path that
+        ``post_stock`` uses. That path is covered twice over: the service
+        computes every value itself, and the CHECK constraints above catch
+        anything that gets past it.
+        """
+        if self.pk is None:
+            self.assert_valid()
+        return super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        """Always raises. A posted row is history.
+
+        Spelled out over ``AppendOnlyModel``'s guard so the error names the
+        voucher, and so removing the base class does not quietly remove it.
+        """
+        raise AppendOnlyViolation(
+            f"StockEntry pk={self.pk} ({self.voucher_type} {self.voucher_code}) cannot be "
+            f"deleted — the stock ledger is append-only. Reverse the voucher instead."
+        )
+
+    def assert_valid(self) -> None:
+        """Everything the CHECK constraints enforce, raised in Python first."""
+        if isinstance(self.qty_base, bool) or not isinstance(self.qty_base, int):
+            raise InvalidPosting(
+                f"qty_base must be whole base units as an int, got "
+                f"{type(self.qty_base).__name__}: {self.qty_base!r}. There is no half a piece "
+                f"(CLAUDE.md §2)."
+            )
+        if self.qty_base == 0:
+            raise InvalidPosting(
+                "qty_base is 0. A stock entry that moves nothing records that something "
+                "happened while contributing nothing to the balance."
+            )
+
+        for name in ("rate_paisa", "value_paisa"):
+            value = getattr(self, name)
+            if isinstance(value, bool) or not isinstance(value, int):
+                raise InvalidPosting(
+                    f"{name} must be whole paisa as an int, got {type(value).__name__}: {value!r}"
+                )
+
+        if self.rate_paisa < 0:
+            raise InvalidPosting(
+                f"rate_paisa is {self.rate_paisa}; a cost rate is never negative. "
+                f"Direction lives on qty_base and value_paisa, not on the rate."
+            )
+
+        # Zero value is legal in both directions — free goods cost nothing and
+        # are issued at nothing. What is not legal is the two disagreeing.
+        if (self.qty_base > 0 and self.value_paisa < 0) or (
+            self.qty_base < 0 and self.value_paisa > 0
+        ):
+            raise InvalidPosting(
+                f"qty_base={self.qty_base} and value_paisa={self.value_paisa} disagree on "
+                f"direction. Stock coming in carries value in; stock going out carries it out."
+            )
+
+        if self.is_reversal != (self.reverses_id is not None):
+            raise InvalidPosting(
+                "A reversal names the row it reverses, and only a reversal does; got "
+                f"is_reversal={self.is_reversal}, reverses={self.reverses_id!r}."
+            )
+
+    # ------------------------------------------------------------------
+    # Convenience for reading, never for writing
+    # ------------------------------------------------------------------
+    @property
+    def is_inward(self) -> bool:
+        """True for a receipt, False for an issue. Reads the sign, nothing else."""
+        return self.qty_base > 0

@@ -1,43 +1,65 @@
 """
-The general ledger's four operations.
+The two ledgers' eight operations.
 
 Everything that will ever be reported — a customer's outstanding balance, a
-trial balance, a P&L, a recovery sheet — is one of these two reads over rows
-written by one of these two writes. There is no fifth operation and there is no
-cached total anywhere in the system (CLAUDE.md §6).
+trial balance, a P&L, a recovery sheet, a stock position, a valuation — is one
+of these four reads over rows written by one of these four writes. There is no
+ninth operation and there is no cached total anywhere in the system
+(CLAUDE.md §6).
 
     post_entries(voucher, lines, posting_date)   write a balanced set of rows
     reverse_entries(voucher)                     write their mirror image
     account_balance(account, as_of=None)         aggregate one account's subtree
     party_balance(party_type, party_id, as_of)   aggregate one party
 
-Both writes are append-only and atomic. Neither ever updates or deletes a row;
-``reverse_entries`` in particular does not touch the entries it reverses, it
-writes new ones beside them.
+    post_stock(voucher, lines, posting_date)     value and write stock movement
+    reverse_stock(voucher)                       write its mirror image
+    stock_balance(item, warehouse, as_of)        aggregate quantity and value
+    valuation_rate(item, warehouse, as_of)       what one base unit is worth
+
+Every write is append-only and atomic. None of them ever updates or deletes a
+row; the two reversals in particular do not touch the entries they reverse,
+they write new ones beside them.
+
+The stock half deliberately mirrors the ledger half — same line-dict shape, same
+double-post refusal, same reversal rules — with one structural difference, in
+:func:`post_stock`: a ledger posting can be validated before the transaction
+opens because balancing is pure arithmetic on the caller's own numbers, whereas
+a stock posting has to read the position it is valuing against, and that read
+belongs under the same write lock as the insert.
 """
 
 from __future__ import annotations
 
 from datetime import date, datetime
+from typing import NamedTuple
 
+from django.conf import settings
 from django.db import transaction
 from django.db.models import Sum
 
 from apps.core.money import Money, fmt
+from apps.masters.models import Item
 
 from .enums import party_sign
 from .exceptions import (
     AlreadyPosted,
     AlreadyReversed,
+    InsufficientStock,
     InvalidPosting,
     UnbalancedEntry,
 )
-from .models import Account, LedgerEntry
+from .models import Account, LedgerEntry, StockEntry, Warehouse
 from .refs import PartyRef, VoucherRef
+from .valuation import Position
 
 #: The keys a line dict may contain. Anything else is a typo, and a typo like
 #: ``debit`` for ``debit_paisa`` would otherwise post a silent zero.
 LINE_KEYS = frozenset({"account", "debit_paisa", "credit_paisa", "party", "remarks"})
+
+#: The same, for a stock line. ``rate_paisa`` is required on the way in and
+#: refused on the way out — see :func:`_prepare_stock_line`.
+STOCK_LINE_KEYS = frozenset({"item", "warehouse", "qty_base", "rate_paisa"})
 
 
 # ---------------------------------------------------------------------------
@@ -386,7 +408,475 @@ def _assert_balanced(prepared: list[dict], ref: VoucherRef) -> None:
     )
 
 
-#: The whole public surface. Accounts, entries, ``PartyRef`` and ``PartyType``
-#: are imported from the modules that define them — this one is deliberately not
-#: a facade, so that a reader can always tell where a name comes from.
-__all__ = ["account_balance", "party_balance", "post_entries", "reverse_entries"]
+# ===========================================================================
+# Stock
+# ===========================================================================
+class StockBalance(NamedTuple):
+    """What an ``(item, warehouse)`` holds: base units, and the cost behind them.
+
+    Unpacks as the plain pair the callers want::
+
+        qty_base, value_paisa = stock_balance(item, warehouse)
+
+    Both are plain ``int``, matching what the fields store. Wrap the value in
+    :class:`~apps.core.money.Money` to do arithmetic with it (CLAUDE.md §1).
+    """
+
+    qty_base: int
+    value_paisa: int
+
+
+# ---------------------------------------------------------------------------
+# Writes
+# ---------------------------------------------------------------------------
+def post_stock(voucher, lines, posting_date, *, user=None) -> list[StockEntry]:
+    """Value and write one voucher's stock rows. All of them, or none of them.
+
+    ``lines`` is a list of dicts::
+
+        post_stock(
+            receipt,
+            [{"item": rice, "warehouse": godown, "qty_base": 100, "rate_paisa": 8500}],
+            posting_date=receipt.receipt_date,
+            user=user,
+        )
+
+        post_stock(
+            invoice,
+            [{"item": rice, "warehouse": van, "qty_base": -12}],   # no rate
+            posting_date=invoice.invoice_date,
+        )
+
+    ``qty_base`` is signed: **positive in, negative out**.
+
+    Incoming lines must carry ``rate_paisa``, the cost of one base unit. It is
+    an input, not a derivation — nothing else can tell you what the goods cost.
+
+    Outgoing lines must **not** carry a rate, and that refusal is load-bearing.
+    An issue is valued at the moving weighted average for that
+    ``(item, warehouse)`` at that moment, computed here and stored on the row.
+    The rate a sales line knows is the *selling* price, and accepting it would
+    value cost of goods sold at the price it sold for and report a gross margin
+    of exactly zero, forever, on every invoice.
+
+    Rules, all enforced rather than assumed:
+
+    * A voucher that already has stock rows is refused (:class:`AlreadyPosted`),
+      for the same reason a double ledger posting is: the document looks right
+      and the stock is silently doubled.
+    * An issue that would take an ``(item, warehouse)`` balance below zero
+      raises :class:`InsufficientStock`, naming the item and how much there
+      actually is — unless ``settings.ALLOW_NEGATIVE_STOCK`` is on.
+    * Several lines for the same ``(item, warehouse)`` value against each other
+      in order, so a receipt and an issue of the same item in one voucher behave
+      exactly as they would in two.
+
+    Unlike :func:`post_entries`, the checks that need the database run *inside*
+    the transaction. A ledger posting balances or it does not, using only the
+    caller's own numbers; a stock posting has to read the position it is valuing
+    against, and reading that outside the write lock would let two concurrent
+    issues each see stock that only one of them can have. The cheap shape checks
+    still run first, outside.
+
+    Returns the created rows, oldest first.
+    """
+    ref = VoucherRef.of(voucher)
+    posting_date = _as_ledger_date(posting_date, label="posting_date")
+    prepared = _prepare_stock_lines(lines)
+
+    with transaction.atomic():
+        if StockEntry.objects.filter(voucher_type=ref.type, voucher_id=ref.id).exists():
+            raise AlreadyPosted(
+                f"{ref} already has stock entries. A document is posted once; to correct "
+                f"it, cancel it (which reverses those entries) and post an amendment."
+            )
+
+        allow_negative = getattr(settings, "ALLOW_NEGATIVE_STOCK", False)
+        positions: dict[tuple[int, int], _RunningPosition] = {}
+        rows = []
+
+        for line in prepared:
+            item, warehouse = line["item"], line["warehouse"]
+            key = (item.pk, warehouse.pk)
+            if key not in positions:
+                positions[key] = _RunningPosition(item, warehouse, posting_date)
+            position = positions[key]
+
+            if line["qty_base"] > 0:
+                movement = position.receive(line["qty_base"], line["rate_paisa"])
+            else:
+                movement = position.issue(-line["qty_base"], allow_negative=allow_negative)
+
+            rows.append(
+                StockEntry(
+                    posting_date=posting_date,
+                    item=item,
+                    warehouse=warehouse,
+                    qty_base=movement.qty_base,
+                    rate_paisa=movement.rate_paisa,
+                    value_paisa=movement.value_paisa,
+                    voucher_type=ref.type,
+                    voucher_id=ref.id,
+                    voucher_code=ref.code,
+                    is_reversal=False,
+                    reverses=None,
+                    created_by=user,
+                )
+            )
+
+        return StockEntry.objects.bulk_create(rows)
+
+
+def reverse_stock(
+    voucher,
+    *,
+    posting_date: date | None = None,
+    user=None,
+) -> list[StockEntry]:
+    """Write the mirror image of a voucher's stock rows.
+
+    This is what cancelling a document does. For each live row it writes a new
+    row for the same item in the same warehouse, on the same date, with the
+    quantity and the value **negated** and the rate **carried across unchanged**.
+
+    Carrying the rate rather than recomputing it is the whole point. A cancelled
+    issue puts back exactly the value it took out, so quantity and value return
+    together and the position lands where it started. Re-valuing the reversal at
+    today's average would put back a different number of paisa than was removed,
+    and the difference would sit in inventory forever with nothing to explain it.
+
+    The originals are not read-modify-written, not flagged, not touched in any
+    way. Nothing in this function issues an UPDATE.
+
+    Only *live* rows are reversed — rows that are not themselves reversals and
+    that nothing already reverses — so calling this twice raises
+    :class:`AlreadyReversed` the second time, as does calling it on a voucher
+    that was never posted.
+
+    ``posting_date`` defaults to each original row's own date, which is what
+    keeps ``stock_balance(as_of=...)`` netting to zero when you look back at a
+    date before the cancellation.
+
+    Note what is deliberately **not** checked: whether the reversal takes stock
+    negative. Cancelling a goods receipt whose stock has since been sold does
+    exactly that. Refusing it would trap the document in POSTED with no legal
+    move left — the same reason :func:`reverse_entries` does not re-check that
+    the accounts are still active. A document must always be cancellable.
+    """
+    ref = VoucherRef.of(voucher)
+    if posting_date is not None:
+        posting_date = _as_ledger_date(posting_date, label="posting_date")
+
+    with transaction.atomic():
+        originals = list(
+            StockEntry.objects.filter(
+                voucher_type=ref.type,
+                voucher_id=ref.id,
+                is_reversal=False,
+                reversed_by__isnull=True,
+            ).order_by("pk")
+        )
+
+        if not originals:
+            posted_anything = StockEntry.objects.filter(
+                voucher_type=ref.type, voucher_id=ref.id
+            ).exists()
+            if posted_anything:
+                raise AlreadyReversed(
+                    f"{ref} has already been reversed; every stock entry it wrote is "
+                    f"cancelled. Reversing again would put the original movement back."
+                )
+            raise AlreadyReversed(f"{ref} has no stock entries, so there is nothing to reverse.")
+
+        return StockEntry.objects.bulk_create(
+            [
+                StockEntry(
+                    posting_date=posting_date or original.posting_date,
+                    item_id=original.item_id,
+                    warehouse_id=original.warehouse_id,
+                    # The whole reversal, in three lines: quantity and value
+                    # flip, the rate is a fact about the original and does not.
+                    qty_base=-original.qty_base,
+                    rate_paisa=original.rate_paisa,
+                    value_paisa=-original.value_paisa,
+                    voucher_type=original.voucher_type,
+                    voucher_id=original.voucher_id,
+                    voucher_code=original.voucher_code,
+                    is_reversal=True,
+                    reverses=original,
+                    created_by=user,
+                )
+                for original in originals
+            ]
+        )
+
+
+# ---------------------------------------------------------------------------
+# Reads
+# ---------------------------------------------------------------------------
+def stock_balance(item, warehouse=None, as_of: date | None = None) -> StockBalance:
+    """What is held and what it is worth, aggregated from the stock ledger.
+
+    Returns ``(qty_base, value_paisa)``. Nothing is cached and there is no
+    ``stock_on_hand`` field anywhere to disagree with this (CLAUDE.md §6).
+
+    ``warehouse=None`` totals every warehouse, which is the stock position
+    report. The quantity is meaningful across warehouses and so is the value;
+    the *rate* is not, which is why :func:`valuation_rate` insists on one
+    warehouse.
+
+    ``as_of`` is inclusive and is a ``date``, not a ``datetime`` — see
+    :func:`_as_ledger_date`.
+    """
+    entries = StockEntry.objects.filter(item=item)
+    if warehouse is not None:
+        entries = entries.filter(warehouse=warehouse)
+    if as_of is not None:
+        entries = entries.filter(posting_date__lte=_as_ledger_date(as_of, label="as_of"))
+
+    totals = entries.aggregate(
+        qty=Sum("qty_base", default=0),
+        value=Sum("value_paisa", default=0),
+    )
+    return StockBalance(qty_base=totals["qty"], value_paisa=totals["value"])
+
+
+def valuation_rate(item, warehouse, as_of: date | None = None) -> int:
+    """What one base unit of ``item`` in ``warehouse`` is worth, in paisa.
+
+    The moving weighted average: the value held divided by the quantity held,
+    rounded once through :func:`~apps.core.money.round_paisa`. Per warehouse,
+    never across them — see :class:`~apps.accounting.models.Warehouse`.
+
+    When nothing is held there is nothing to average, so the answer falls back
+    to the rate on the most recent movement — the last price this item was
+    known to be worth here, which is what an issue against an empty position
+    has to be valued at. With no movement at all it is zero.
+    """
+    qty_base, value_paisa = stock_balance(item, warehouse, as_of)
+    if qty_base > 0 and value_paisa > 0:
+        return Position(qty_base=qty_base, value_paisa=value_paisa).rate_paisa
+    return _last_rate_paisa(StockEntry.objects.filter(item=item, warehouse=warehouse), as_of)
+
+
+# ---------------------------------------------------------------------------
+# Valuation state
+# ---------------------------------------------------------------------------
+class _RunningPosition:
+    """One ``(item, warehouse)`` being walked through a voucher's lines.
+
+    Seeded from the rows that already sit **on or before** the posting date, and
+    advanced line by line so that two lines touching the same item in one
+    voucher value against each other in order.
+
+    "On or before", rather than "everything written so far", is what makes
+    back-dated entries value correctly. A stock card is read in posting-date
+    order, so an entry dated April is valued from what April knew, however long
+    after the June rows it happened to be typed in. The June rows keep the rates
+    they were written with: they are history, they are append-only, and
+    CLAUDE.md §3 does not have an exception for "but the average changed". What
+    a back-dated entry can never do is silently re-value what is already posted.
+    """
+
+    def __init__(self, item, warehouse, posting_date: date):
+        self.item = item
+        self.warehouse = warehouse
+        entries = StockEntry.objects.filter(item=item, warehouse=warehouse)
+
+        self.position = _position_of(entries.filter(posting_date__lte=posting_date))
+        self.fallback_rate_paisa = _last_rate_paisa(entries, posting_date)
+        self.headroom = _headroom_after(entries, posting_date)
+
+    @property
+    def available(self) -> int:
+        """How much may be issued without any later balance going negative.
+
+        Normally just what is on hand. When rows already exist *after* this
+        posting date, issuing here lowers every one of those later balances by
+        the same amount, so the figure that matters is the worst of them — see
+        :func:`_headroom_after`.
+        """
+        return self.position.qty_base + self.headroom
+
+    def receive(self, qty_base: int, rate_paisa: int):
+        movement = self.position.receive(qty_base, rate_paisa)
+        self.position = self.position.apply(movement)
+        return movement
+
+    def issue(self, qty_base: int, *, allow_negative: bool):
+        if not allow_negative and qty_base > self.available:
+            raise InsufficientStock(
+                item=self.item,
+                warehouse=self.warehouse,
+                requested=qty_base,
+                available=self.available,
+            )
+        movement = self.position.issue(qty_base, fallback_rate_paisa=self.fallback_rate_paisa)
+        self.position = self.position.apply(movement)
+        return movement
+
+
+def _position_of(entries) -> Position:
+    """Collapse a queryset of rows into the position they add up to."""
+    totals = entries.aggregate(
+        qty=Sum("qty_base", default=0),
+        value=Sum("value_paisa", default=0),
+    )
+    return Position(qty_base=totals["qty"], value_paisa=totals["value"])
+
+
+def _last_rate_paisa(entries, as_of: date | None) -> int:
+    """The rate on the most recent row up to ``as_of``, or 0 if there is none."""
+    if as_of is not None:
+        entries = entries.filter(posting_date__lte=_as_ledger_date(as_of, label="as_of"))
+    rate = entries.order_by("-posting_date", "-id").values_list("rate_paisa", flat=True).first()
+    return rate or 0
+
+
+def _headroom_after(entries, posting_date: date) -> int:
+    """The worst dip in the balance *after* ``posting_date``, as a non-positive int.
+
+    An issue back-dated into the middle of a stock card lowers every balance
+    from that day on, so checking only the balance on the day itself is not
+    enough: April can be comfortably in stock while May is already at zero.
+
+    Walking the later rows costs one query that returns nothing at all in the
+    ordinary case — a document posted today has no rows after it — so only
+    back-dating pays for this.
+    """
+    running = 0
+    floor = 0
+    later = (
+        entries.filter(posting_date__gt=posting_date)
+        .order_by("posting_date", "id")
+        .values_list("qty_base", flat=True)
+    )
+    for qty_base in later:
+        running += qty_base
+        floor = min(floor, running)
+    return floor
+
+
+# ---------------------------------------------------------------------------
+# Validation
+# ---------------------------------------------------------------------------
+def _prepare_stock_lines(lines) -> list[dict]:
+    """Validate and normalise the caller's stock lines. Reads only, no writes."""
+    if lines is None:
+        raise InvalidPosting("post_stock needs a list of lines; got None.")
+
+    prepared = [_prepare_stock_line(index, line) for index, line in enumerate(lines)]
+
+    if not prepared:
+        raise InvalidPosting(
+            "post_stock was called with no lines. A voucher that moves no stock should not "
+            "reach the stock ledger at all."
+        )
+    return prepared
+
+
+def _prepare_stock_line(index: int, line) -> dict:
+    where = f"line {index}"
+
+    if not isinstance(line, dict):
+        raise InvalidPosting(f"{where} must be a dict, got {type(line).__name__}: {line!r}")
+
+    unknown = set(line) - STOCK_LINE_KEYS
+    if unknown:
+        raise InvalidPosting(
+            f"{where} has unknown key(s) {sorted(unknown)}; expected some of "
+            f"{sorted(STOCK_LINE_KEYS)}. Quantities are named qty_base and rates rate_paisa "
+            f"— the unit is part of the name (CLAUDE.md §1, §2)."
+        )
+
+    item = line.get("item")
+    if not isinstance(item, Item):
+        raise InvalidPosting(
+            f"{where} needs an Item instance under 'item', got {type(item).__name__}: {item!r}"
+        )
+
+    warehouse = line.get("warehouse")
+    if not isinstance(warehouse, Warehouse):
+        raise InvalidPosting(
+            f"{where} needs a Warehouse instance under 'warehouse', got "
+            f"{type(warehouse).__name__}: {warehouse!r}. Warehouse.get_default() if the "
+            f"document does not name one."
+        )
+
+    qty_base = _as_qty(line.get("qty_base", 0), f"{where} qty_base")
+    if qty_base == 0:
+        raise InvalidPosting(
+            f"{where} moves no stock. A zero line adds nothing to the stock card and hides "
+            f"the fact that something upstream computed zero."
+        )
+
+    if qty_base > 0:
+        if "rate_paisa" not in line:
+            raise InvalidPosting(
+                f"{where} receives {qty_base} base unit(s) but gives no rate_paisa. Incoming "
+                f"stock is valued at what it cost, and nothing but the document knows that."
+            )
+        rate_paisa = _as_rate_paisa(line["rate_paisa"], f"{where} rate_paisa")
+    else:
+        if "rate_paisa" in line:
+            raise InvalidPosting(
+                f"{where} issues stock and also supplies rate_paisa. An issue is valued at the "
+                f"moving average for that item and warehouse at that moment; a selling price "
+                f"must never reach the stock ledger, or cost of goods sold becomes the sale."
+            )
+        rate_paisa = None
+
+    return {
+        "item": item,
+        "warehouse": warehouse,
+        "qty_base": qty_base,
+        "rate_paisa": rate_paisa,
+    }
+
+
+def _as_qty(value, label: str) -> int:
+    """A stock quantity is a whole number of base units. Nothing else.
+
+    Fractions are refused rather than rounded (CLAUDE.md §2): there is no half a
+    piece, and a float here means a carton conversion was done by division
+    somewhere upstream instead of by the item's UOM.
+    """
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise InvalidPosting(
+            f"{label} must be whole base units as an int, got {type(value).__name__}: "
+            f"{value!r}. A pack of 12 is a UOM conversion on the item, not a fraction."
+        )
+    return value
+
+
+def _as_rate_paisa(value, label: str) -> int:
+    """A cost rate is a non-negative whole number of paisa per base unit."""
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise InvalidPosting(
+            f"{label} must be whole paisa as an int, got {type(value).__name__}: {value!r}. "
+            f"If you are holding a Money, pass its .paisa; if you are holding operator "
+            f"input, run it through apps.core.money.to_paisa first."
+        )
+    if value < 0:
+        raise InvalidPosting(
+            f"{label} is {value}. A cost rate is never negative — direction lives on "
+            f"qty_base, and goods coming back are an issue, not a receipt at a minus rate."
+        )
+    return value
+
+
+#: The whole public surface. Accounts, entries, warehouses, ``PartyRef`` and
+#: ``PartyType`` are imported from the modules that define them — this one is
+#: deliberately not a facade, so that a reader can always tell where a name
+#: comes from.
+__all__ = [
+    "StockBalance",
+    "account_balance",
+    "party_balance",
+    "post_entries",
+    "post_stock",
+    "reverse_entries",
+    "reverse_stock",
+    "stock_balance",
+    "valuation_rate",
+]

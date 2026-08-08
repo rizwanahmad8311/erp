@@ -1,9 +1,10 @@
-"""Unfold-styled admin for the chart of accounts and the ledger.
+"""Unfold-styled admin for the chart of accounts, the warehouses, and the two
+ledgers.
 
-The chart is a master and is editable. The ledger is **not** — it is registered
-read-only, because CLAUDE.md §3 says an entry is never updated and never
-deleted, and the admin is the one place where a well-meaning person can do both
-in three clicks.
+The chart and the warehouse list are masters and are editable. The ledgers are
+**not** — they are registered read-only, because CLAUDE.md §3 says an entry is
+never updated and never deleted, and the admin is the one place where a
+well-meaning person can do both in three clicks.
 """
 
 from django.contrib import admin
@@ -11,7 +12,7 @@ from unfold.admin import ModelAdmin
 
 from apps.core.money import fmt
 
-from .models import Account, LedgerEntry
+from .models import Account, LedgerEntry, StockEntry, Warehouse
 
 
 @admin.register(Account)
@@ -72,6 +73,69 @@ class LedgerEntryAdmin(ModelAdmin):
     @admin.display(description="Party")
     def party(self, obj) -> str:
         return f"{obj.get_party_type_display()} #{obj.party_id}" if obj.party_type else ""
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+
+@admin.register(Warehouse)
+class WarehouseAdmin(ModelAdmin):
+    """Editable, with the one-default rule enforced by ``Warehouse.clean()``.
+
+    Deleting a warehouse that has movement is impossible regardless of what is
+    clicked here: the stock ledger's foreign key is ``PROTECT``.
+    """
+
+    list_display = ("code", "name", "is_default")
+    list_filter = ("is_default",)
+    search_fields = ("code", "name")
+    ordering = ("code",)
+    readonly_fields = ("created_at", "updated_at", "created_by", "updated_by")
+    fieldsets = (
+        (None, {"fields": ("code", "name")}),
+        ("Status", {"fields": ("is_default",)}),
+        ("Audit", {"fields": ("created_at", "created_by", "updated_at", "updated_by")}),
+    )
+
+
+@admin.register(StockEntry)
+class StockEntryAdmin(ModelAdmin):
+    """Read-only. Every permission hook says no, on purpose.
+
+    Corrections are made by cancelling the document, which posts reversing rows
+    through ``accounting.services.reverse_stock``. There is no route from this
+    page to a changed quantity, and there must not be one.
+    """
+
+    list_display = (
+        "posting_date",
+        "item",
+        "warehouse",
+        "qty_base",
+        "rate",
+        "value",
+        "voucher_code",
+        "is_reversal",
+    )
+    list_filter = ("posting_date", "is_reversal", "warehouse", "voucher_type")
+    search_fields = ("voucher_code", "item__code", "item__name", "warehouse__code")
+    date_hierarchy = "posting_date"
+    ordering = ("-posting_date", "-id")
+    list_select_related = ("item", "warehouse")
+
+    @admin.display(description="Rate", ordering="rate_paisa")
+    def rate(self, obj) -> str:
+        return fmt(obj.rate_paisa)
+
+    @admin.display(description="Value", ordering="value_paisa")
+    def value(self, obj) -> str:
+        return fmt(obj.value_paisa)
 
     def has_add_permission(self, request):
         return False

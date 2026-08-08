@@ -163,24 +163,42 @@ class TestAppRegistry:
         apps = settings.INSTALLED_APPS
         assert apps.index("unfold") < apps.index("django.contrib.admin")
 
-    def test_accounting_holds_the_chart_and_the_ledger(self):
-        """Everything else in the system is derived from these two tables."""
+    def test_accounting_holds_the_two_ledgers(self):
+        """Everything else in the system is derived from these four tables.
+
+        The stock ledger lives beside the general ledger rather than in an app
+        of its own because it is the same thing: an append-only record that
+        every report is aggregated from. The chart and the warehouse list are
+        the masters those records hang off.
+        """
         from django.apps import apps as django_apps
 
         accounting_models = {
             m.__name__ for m in django_apps.get_app_config("accounting").get_models()
         }
-        assert accounting_models == {"Account", "LedgerEntry"}, (
-            f"accounting should hold the chart and the ledger, found: {sorted(accounting_models)}"
+        assert accounting_models == {"Account", "LedgerEntry", "Warehouse", "StockEntry"}, (
+            f"accounting should hold both ledgers, found: {sorted(accounting_models)}"
         )
 
-    def test_the_ledger_is_append_only(self):
+    def test_both_ledgers_are_append_only(self):
         """The guard is inherited, not re-implemented per model, so it cannot
-        drift between LedgerEntry and the StockEntry that comes later."""
-        from apps.accounting.models import LedgerEntry
+        drift between LedgerEntry and StockEntry."""
+        from apps.accounting.models import LedgerEntry, StockEntry
         from apps.core.models import AppendOnlyModel
 
         assert issubclass(LedgerEntry, AppendOnlyModel)
+        assert issubclass(StockEntry, AppendOnlyModel)
+
+    def test_masters_holds_only_what_the_stock_ledger_needs(self):
+        """Item exists because StockEntry points a foreign key at it. The rest
+        of masters — UOM, parties, routes, sellers — arrives with the app that
+        owns it, not in advance of it."""
+        from django.apps import apps as django_apps
+
+        masters_models = {m.__name__ for m in django_apps.get_app_config("masters").get_models()}
+        assert masters_models == {"Item"}, (
+            f"masters should hold only the item master so far, found: {sorted(masters_models)}"
+        )
 
     def test_no_other_domain_models_exist_yet(self):
         """core may hold infrastructure (DocumentSequence); the remaining domain
@@ -188,7 +206,6 @@ class TestAppRegistry:
         from django.apps import apps as django_apps
 
         domain_labels = {
-            "masters",
             "purchasing",
             "sales",
             "payments",

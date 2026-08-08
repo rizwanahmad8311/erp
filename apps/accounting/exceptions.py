@@ -53,6 +53,43 @@ class InactiveAccount(InvalidPosting):
     """
 
 
+class InvalidWarehouse(AccountingError):
+    """Raised when the warehouse list would stop having exactly one default.
+
+    Two rows flagged ``is_default``, or none at all when something asked for
+    the default. Both mean a document that does not name a warehouse would
+    silently pick one — or pick nothing — and stock would land somewhere
+    nobody chose.
+    """
+
+
+class InsufficientStock(AccountingError):
+    """Raised when an issue would take an ``(item, warehouse)`` balance negative.
+
+    Carries the numbers as attributes as well as in the message, so a view can
+    render "only 40 left" against the right line instead of re-deriving it.
+
+    Switched off by ``settings.ALLOW_NEGATIVE_STOCK`` for installations that
+    genuinely invoice before the paperwork for the receipt catches up. It
+    defaults to off, because negative stock silently poisons the moving average
+    that every issue after it is valued at.
+    """
+
+    def __init__(self, *, item, warehouse, requested: int, available: int):
+        #: The models are held for the caller's benefit; only ``code`` and
+        #: ``name`` are read here, so this module stays free of model imports.
+        self.item = item
+        self.warehouse = warehouse
+        self.requested = requested
+        self.available = available
+        super().__init__(
+            f"Not enough stock of {item.name} ({item.code}) in warehouse {warehouse.code}: "
+            f"{requested} base unit(s) requested, {available} available. Receive the stock "
+            f"first, or set ALLOW_NEGATIVE_STOCK=True if this installation really does issue "
+            f"before it receives."
+        )
+
+
 class UnbalancedEntry(AccountingError):
     """Raised when the debits and credits of a posting are not exactly equal.
 

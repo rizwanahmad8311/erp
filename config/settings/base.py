@@ -168,6 +168,16 @@ UNFOLD = {
 PAISA_PER_RUPEE = 100
 CURRENCY_SYMBOL = "Rs"
 
+# Whether an issue may take an (item, warehouse) balance below zero.
+#
+# Off. A negative balance has no cost behind it, so the moving weighted average
+# that every later issue is valued at has nothing to average — the deficit gets
+# valued at whatever the last known rate was and quietly spreads into cost of
+# goods sold. Turn it on only for an installation that genuinely invoices before
+# the goods receipt is entered, and expect the valuation to be approximate while
+# any balance is under water.
+ALLOW_NEGATIVE_STOCK = env.bool("ALLOW_NEGATIVE_STOCK", default=False)
+
 LOGGING = {
     "version": 1,
     "disable_existing_loggers": False,

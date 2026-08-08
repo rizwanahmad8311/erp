@@ -67,6 +67,33 @@ def accounts(db):
 
 
 @pytest.fixture
+def warehouses(db):
+    """The two places stock lives in the stock tests.
+
+    Two, not one, because valuation is per ``(item, warehouse)`` and a single
+    warehouse cannot prove that two of them hold the same item at different
+    rates without averaging into each other.
+    """
+    from apps.accounting.models import Warehouse
+
+    return SimpleNamespace(
+        main=Warehouse.objects.create(code="MAIN", name="Main Godown", is_default=True),
+        van=Warehouse.objects.create(code="VAN1", name="Delivery Van 1"),
+    )
+
+
+@pytest.fixture
+def items(db):
+    """A couple of items to move. The stock ledger only reads code and name."""
+    from apps.masters.models import Item
+
+    return SimpleNamespace(
+        rice=Item.objects.create(code="RICE-5", name="Basmati Rice 5kg"),
+        oil=Item.objects.create(code="OIL-1", name="Cooking Oil 1L"),
+    )
+
+
+@pytest.fixture
 def ledger_voucher(db):
     """A saved document to post ledger entries against.
 
