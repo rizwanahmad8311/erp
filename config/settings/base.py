@@ -138,6 +138,37 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 
 # --------------------------------------------------------------------------
+# Cache
+# --------------------------------------------------------------------------
+# Local memory, per process, and that is the right answer here rather than a
+# compromise. Production is one waitress process on one office PC (CLAUDE.md §8):
+# Redis or memcached would be a service to install, supervise and explain to
+# somebody with no internet, and a database-table cache would put writes on the
+# same SQLite file whose write lock every posting is queueing for (§4).
+#
+# Nothing financial is ever served from here. The cache holds the dashboard's
+# already-computed figures for a minute (see apps/reports/dashboard.py); every
+# report, statement and balance is aggregated from the ledger on every request,
+# because a figure somebody is about to act on must not be a minute old.
+CACHES = {
+    "default": {
+        "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+        "LOCATION": "erp",
+        # The dashboard is one entry per user per day and expires in a minute,
+        # so this is far more headroom than it needs; the ceiling is here so a
+        # bug cannot grow the process without bound.
+        "OPTIONS": {"MAX_ENTRIES": 500},
+    }
+}
+
+# How long the dashboard's figures are held. It is the most-hit page in the
+# system — every login lands on it and comes back to it between bills — and one
+# minute is short enough that nobody is acting on a stale figure and long enough
+# that a busy counter is not re-aggregating the ledger on every navigation.
+DASHBOARD_CACHE_SECONDS = env.int("DASHBOARD_CACHE_SECONDS", default=60)
+
+
+# --------------------------------------------------------------------------
 # Auth
 # --------------------------------------------------------------------------
 AUTH_PASSWORD_VALIDATORS = [
@@ -362,6 +393,14 @@ UNFOLD = {
                 "title": "Reports",
                 "separator": True,
                 "items": [
+                    {
+                        # The landing screen. Same permission its view checks,
+                        # so the sidebar cannot offer what a click would refuse.
+                        "title": "Dashboard",
+                        "icon": "dashboard",
+                        "link": reverse_lazy("dashboard"),
+                        "permission": _may("reports.view_reports"),
+                    },
                     {
                         "title": "All reports",
                         "icon": "lab_profile",

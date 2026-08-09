@@ -9,6 +9,22 @@ from types import SimpleNamespace
 import pytest
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Permission
+from django.core.cache import cache
+
+
+@pytest.fixture(autouse=True)
+def _empty_cache():
+    """Start and finish every test with a cold cache.
+
+    The cache is local memory in one process (``config/settings/base.py``), so
+    it outlives a test the way the database does not — and the dashboard writes
+    a per-user entry into it that would otherwise be served to the next test
+    under a rebuilt database. Autouse, because a stale figure that only appears
+    when two tests run in one order is the worst kind of flake to find.
+    """
+    cache.clear()
+    yield
+    cache.clear()
 
 
 @pytest.fixture
@@ -26,8 +42,8 @@ def _clear_permission_cache(user):
     ``has_perm`` memoises on the instance, so a fixture that grants a permission
     to a user something has already asked about would otherwise be ignored.
     """
-    for cache in ("_perm_cache", "_user_perm_cache", "_group_perm_cache"):
-        user.__dict__.pop(cache, None)
+    for attribute in ("_perm_cache", "_user_perm_cache", "_group_perm_cache"):
+        user.__dict__.pop(attribute, None)
     return user
 
 

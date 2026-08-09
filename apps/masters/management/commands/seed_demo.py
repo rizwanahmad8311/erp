@@ -62,6 +62,13 @@ CATEGORIES = [
 #
 # Unprocessed staples are zero-rated; everything else carries 17.5% (1750 bp).
 # ---------------------------------------------------------------------------
+
+#: How much stock the demo says is "getting low", as a number of cartons. Only
+#: so the dashboard's low-stock panel has something to show on a seeded
+#: database; a real installation sets a level per item, which is the whole
+#: reason the field is per item.
+DEMO_REORDER_CARTONS = 2
+
 ITEMS = [
     # Beverages
     ("TEA-190", "Tapal Danedar Tea 190g", "Beverages", 24, "382.00", "425.00", 1750),
@@ -286,6 +293,11 @@ class Command(BaseCommand):
                     "purchase_rate_paisa": to_paisa(purchase),
                     "sale_rate_paisa": to_paisa(sale),
                     "tax_rate_bp": tax_bp,
+                    # Derived rather than a column in ITEMS, because a demo
+                    # reorder level is not a fact about the goods — it is "two
+                    # cartons left" expressed in the base units the field
+                    # stores. A real installation types its own per item.
+                    "reorder_level_pieces": carton_size * DEMO_REORDER_CARTONS,
                 },
             )
             if was_created:

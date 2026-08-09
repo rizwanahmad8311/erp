@@ -1,11 +1,16 @@
-"""The two printed reports that are not a document's own screen.
+"""The dashboard, and the two printed reports that are not a document's screen.
 
 A client statement and a route day sheet are pieces of paper somebody carries,
 not screens somebody sits at — so unlike an invoice, which has an entry screen
 with ``?format=pdf`` bolted on, these are PDF-only routes.
 
-Both read the ledger through :mod:`apps.reports.pdf.ledgers`. Neither writes
-anything, and neither runs inside a transaction (CLAUDE.md §4).
+The dashboard is the opposite: a screen and only a screen. It is the site root,
+which is where :data:`settings.LOGIN_REDIRECT_URL` has always pointed, and it is
+built by :mod:`apps.reports.dashboard` — every figure on it aggregated from the
+ledger, and every card linking to the report that explains it.
+
+Everything here reads the ledger. Nothing writes anything, and nothing runs
+inside a transaction (CLAUDE.md §4).
 """
 
 from __future__ import annotations
@@ -14,12 +19,15 @@ import datetime as dt
 
 from django.contrib.auth.decorators import login_required
 from django.http import Http404
-from django.shortcuts import get_object_or_404
+from django.shortcuts import get_object_or_404, render
 from django.utils import timezone
 from django.views.decorators.http import require_GET
 
+from apps.accounts.access import module_required
+from apps.accounts.permissions import VIEW_REPORTS
 from apps.masters.models import Client, Route
 
+from .dashboard import dashboard_for
 from .pdf import client_ledger_pdf, route_day_sheet_pdf
 from .responses import pdf_filename, pdf_response, wants_download
 
@@ -42,6 +50,23 @@ def _date(request, name: str, default: dt.date) -> dt.date:
         return dt.date.fromisoformat(raw)
     except ValueError:
         raise Http404(f"{name} must be a date as YYYY-MM-DD, got {raw!r}.") from None
+
+
+@module_required(VIEW_REPORTS)
+@require_GET
+def dashboard(request):
+    """The landing screen at ``/``.
+
+    Guarded by the same permission the reports index is, and for the same
+    reason: this page is aggregation over the ledger with a chart on it, and a
+    menu never offers what a click would refuse. Every one of the five seeded
+    groups holds it.
+
+    Which *cards* and which *panels* appear is a second question, answered
+    per-figure inside :func:`apps.reports.dashboard.build` — an Operator opens
+    this page and is shown no rupee figure on it at all.
+    """
+    return render(request, "reports/dashboard.html", {"board": dashboard_for(request.user)})
 
 
 @login_required

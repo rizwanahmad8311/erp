@@ -188,6 +188,24 @@ class Item(TimeStampedModel):
         help_text="Base units in one carton. 1 means the item is not sold by the carton.",
     )
 
+    # A threshold, not a position. There is still no ``current_stock`` here and
+    # there must not be (CLAUDE.md §6): what is on the shelf is the stock ledger
+    # summed up, and this is only the line somebody drew under it. The dashboard
+    # compares the two — see :func:`apps.reports.dashboard.low_stock`.
+    #
+    # Per item rather than a global setting, because "low" for a 25kg rice bag
+    # and "low" for a sachet of shampoo are different numbers by two orders of
+    # magnitude, and one figure covering both is a figure that flags everything
+    # or nothing.
+    reorder_level_pieces = QuantityField(
+        default=0,
+        validators=[MinValueValidator(0)],
+        help_text=(
+            "Reorder when the position falls to this many BASE UNITS. "
+            "0 means this item is not watched."
+        ),
+    )
+
     purchase_rate_paisa = MoneyField(
         non_negative=True,
         help_text="Default buying rate for ONE BASE UNIT, in paisa. A data-entry default only.",
@@ -238,6 +256,13 @@ class Item(TimeStampedModel):
                 name="item_carton_size_at_least_one",
                 condition=models.Q(carton_size__gte=1),
                 violation_error_message="A carton holds at least one base unit.",
+            ),
+            # A negative threshold can never be crossed, so an item carrying one
+            # is an item silently exempt from the low-stock panel.
+            models.CheckConstraint(
+                name="item_reorder_level_not_negative",
+                condition=models.Q(reorder_level_pieces__gte=0),
+                violation_error_message="A reorder level is zero or more base units.",
             ),
             models.CheckConstraint(
                 name="item_tax_rate_within_range",
@@ -305,6 +330,19 @@ class Item(TimeStampedModel):
                 f"Item {self.code} is counted in cartons, so carton_size must be 1 — the "
                 f"carton is already the base unit, and {self.carton_size} describes a "
                 f"packing level with no unit to count it in."
+            )
+        if isinstance(self.reorder_level_pieces, bool) or not isinstance(
+            self.reorder_level_pieces, int
+        ):
+            raise InvalidPacking(
+                f"reorder_level_pieces must be a whole number of base units, got "
+                f"{type(self.reorder_level_pieces).__name__}: {self.reorder_level_pieces!r}"
+            )
+        if self.reorder_level_pieces < 0:
+            raise InvalidPacking(
+                f"Item {self.code} has reorder_level_pieces={self.reorder_level_pieces}. A "
+                f"threshold below zero can never be crossed; use 0 for an item nobody "
+                f"watches."
             )
 
     def clean(self):

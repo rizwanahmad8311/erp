@@ -1,0 +1,344 @@
+{% extends "base.html" %}
+{% load core_tags %}
+
+{% comment %}
+  The landing screen. One dashboard, role-aware.
+
+  Everything here was computed in Python and arrived as data — see
+  apps/reports/dashboard.py, which aggregates the ledger and nothing else
+  (CLAUDE.md §6). This template does no arithmetic, including the chart: the
+  SVG path is a string of integer coordinates built by the same module, because
+  there is no charting library in this project and there is not going to be one
+  (§7 rules out a CDN, §8 rules out anything with a build step).
+
+  **Every card links to the report that explains it.** That is the rule the card
+  markup below enforces by having nowhere to put a card without a link — a
+  number nobody can drill into is a number nobody trusts.
+
+  Role is applied in Python, not here. `board.shows_money` is false for an
+  Operator and the figures are then not merely hidden but *absent* from the
+  context — the same reasoning as `Report.columns_for` (apps/reports/registry.py):
+  masking applied where the data is chosen cannot be honoured on screen and
+  forgotten somewhere else.
+{% endcomment %}
+
+{% block title %}Dashboard{% endblock %}
+
+{% block content %}
+
+  <div class="mb-4 flex flex-wrap items-baseline justify-between gap-2">
+    <div>
+      <h1 class="text-xl font-semibold">Today</h1>
+      <p class="text-sm text-muted">
+        {{ board.day|date:"l, d M Y" }}.
+        {% if board.is_scoped %}
+          {% if board.route_count %}
+            Your {{ board.route_count }} route{{ board.route_count|pluralize }} only.
+          {% else %}
+            No route is assigned to your login, so there is nothing here yet —
+            ask an administrator to link you to a seller.
+          {% endif %}
+        {% endif %}
+        Every figure is aggregated from the ledger and refreshed at most once a minute.
+      </p>
+    </div>
+    <a href="{% url 'reports:index' %}" class="text-sm text-signal underline">All reports</a>
+  </div>
+
+  {# ==================================================================== cards #}
+  {% if board.cards %}
+    <div class="mb-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
+      {% for card in board.cards %}
+        <a href="{{ card.url }}"
+           class="block rounded-sharp border border-rule bg-white px-3 py-2.5 hover:border-signal">
+          <span class="block text-xs uppercase tracking-wide text-muted">{{ card.label }}</span>
+
+          {% comment %}
+            `has_paisa`, not `{% if card.paisa %}` — a quiet morning's sales are
+            genuinely zero, and a card that went blank rather than printing
+            0.00 would read as a broken page. See the note on Card.
+          {% endcomment %}
+          <span class="amount block text-lg font-semibold {% if card.alarm %}text-alarm{% endif %}">
+            {% if card.has_paisa %}{{ card.paisa|money }}{% else %}{{ card.count }}{% endif %}
+          </span>
+
+          {% if card.sub_label %}
+            <span class="mt-1 block border-t border-rule pt-1 text-xs
+                         {% if card.sub_alarm %}text-alarm{% else %}text-muted{% endif %}">
+              <span class="amount font-semibold">
+                {% if card.has_sub_paisa %}{{ card.sub_paisa|money }}{% else %}{{ card.sub_count }}{% endif %}
+              </span>
+              {{ card.sub_label }}
+            </span>
+          {% endif %}
+
+          {% if card.note %}
+            <span class="mt-1 block text-xs text-muted">{{ card.note }}</span>
+          {% endif %}
+        </a>
+      {% endfor %}
+    </div>
+  {% endif %}
+
+  <div class="grid gap-5 lg:grid-cols-3">
+
+    {# ============================================================ sales trend #}
+    {% if board.trend %}
+      <section class="lg:col-span-2">
+        <div class="mb-1 flex items-baseline justify-between gap-2">
+          <h2 class="text-xs font-semibold uppercase tracking-wide text-muted">
+            Sales, last {{ board.trend.days }} days
+          </h2>
+          <a href="{{ board.trend.url }}" class="text-xs text-signal underline">
+            {{ board.trend.total_paisa|money }} in the period
+          </a>
+        </div>
+
+        <div class="rounded-sharp border border-rule bg-white p-2">
+          {% if board.trend.has_movement %}
+            {% comment %}
+              Hand-rolled, and self-contained: no <script>, no library, no
+              request to anywhere. The coordinates are integers computed in
+              apps/reports/dashboard.py — a chart must not be a second place
+              money arithmetic happens (CLAUDE.md §1).
+            {% endcomment %}
+            <svg viewBox="0 0 {{ board.trend.width }} {{ board.trend.height }}"
+                 class="block w-full text-signal"
+                 role="img"
+                 aria-label="Daily sales for the last {{ board.trend.days }} days, peaking at {{ board.trend.peak_paisa|money }}">
+              <polygon points="{{ board.trend.area }}" fill="currentColor" fill-opacity="0.07"></polygon>
+              <line x1="0" y1="{{ board.trend.baseline_y }}"
+                    x2="{{ board.trend.width }}" y2="{{ board.trend.baseline_y }}"
+                    stroke="currentColor" stroke-opacity="0.25" stroke-width="1"></line>
+              <polyline points="{{ board.trend.polyline }}"
+                        fill="none" stroke="currentColor" stroke-width="2"
+                        stroke-linejoin="round" stroke-linecap="round"></polyline>
+              {% comment %}
+                A transparent hit target per day, carrying the figure as a
+                <title>. It is the browser's own tooltip — no JS, and it reads
+                out to a screen reader as well.
+              {% endcomment %}
+              {% for point in board.trend.points %}
+                <circle cx="{{ point.x }}" cy="{{ point.y }}" r="7" fill="transparent">
+                  <title>{{ point.label }}</title>
+                </circle>
+              {% endfor %}
+            </svg>
+            <div class="mt-1 flex justify-between text-xs text-muted">
+              <span class="doc-date">{{ board.trend.points.0.day|date:"d M" }}</span>
+              <span>Peak <span class="amount">{{ board.trend.peak_paisa|money }}</span> in a day</span>
+              <span class="doc-date">{{ board.day|date:"d M" }}</span>
+            </div>
+          {% else %}
+            <p class="empty">Nothing has been invoiced in the last {{ board.trend.days }} days.</p>
+          {% endif %}
+        </div>
+      </section>
+    {% endif %}
+
+    {# ========================================================= today's routes #}
+    <section class="{% if not board.trend %}lg:col-span-3{% endif %}">
+      <h2 class="mb-1 text-xs font-semibold uppercase tracking-wide text-muted">
+        Routes running today
+      </h2>
+      <div class="rounded-sharp border border-rule bg-white p-2">
+        {% if board.routes %}
+          <table class="w-full text-sm">
+            <thead>
+              <tr>
+                <th scope="col" class="py-1 text-left">Route</th>
+                <th scope="col" class="py-1 text-right">Bills</th>
+                {% if board.shows_money %}
+                  <th scope="col" class="py-1 text-right">Sales</th>
+                  <th scope="col" class="py-1 text-right">Recovery</th>
+                {% endif %}
+              </tr>
+            </thead>
+            <tbody>
+              {% for route in board.routes %}
+                <tr class="border-t border-rule">
+                  <td class="py-1">
+                    <a href="{{ route.url }}" class="text-signal underline">
+                      <span class="doc-code text-xs">{{ route.code }}</span> {{ route.name }}
+                    </a>
+                    <span class="block text-xs text-muted">{{ route.sellers }}</span>
+                  </td>
+                  <td class="qty py-1 text-right">{{ route.invoice_count }}</td>
+                  {% if board.shows_money %}
+                    <td class="amount py-1 text-right">{{ route.sales_paisa|money }}</td>
+                    <td class="amount py-1 text-right {% if route.recovery_paisa %}text-signal{% endif %}">
+                      {{ route.recovery_paisa|money }}
+                    </td>
+                  {% endif %}
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        {% else %}
+          <p class="empty">No route is scheduled for {{ board.day|date:"l" }}.</p>
+        {% endif %}
+      </div>
+    </section>
+
+    {# ======================================================= overdue clients #}
+    {% if board.shows_money %}
+      <section class="lg:col-span-2">
+        <div class="mb-1 flex items-baseline justify-between gap-2">
+          <h2 class="text-xs font-semibold uppercase tracking-wide text-muted">
+            Most overdue — ring these
+          </h2>
+          <a href="{% url 'payments:recovery' %}" class="text-xs text-signal underline">Recovery</a>
+        </div>
+        <div class="rounded-sharp border border-rule bg-white p-2">
+          {% if board.overdue %}
+            <table class="w-full text-sm">
+              <thead>
+                <tr>
+                  <th scope="col" class="py-1 text-left">Shop</th>
+                  <th scope="col" class="py-1 text-left">Phone</th>
+                  <th scope="col" class="py-1 text-left">Oldest</th>
+                  <th scope="col" class="py-1 text-right">Overdue</th>
+                  <th scope="col" class="py-1 text-right">Owed</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for row in board.overdue %}
+                  <tr class="border-t border-rule">
+                    <td class="py-1">
+                      <a href="{{ row.url }}" class="text-signal underline">
+                        <span class="doc-code text-xs">{{ row.code }}</span> {{ row.name }}
+                      </a>
+                      <span class="text-xs text-muted">{{ row.route }}</span>
+                      {% if row.flagged %}
+                        <span class="text-xs text-alarm" title="Has handed over a cheque that bounced">
+                          bounced
+                        </span>
+                      {% endif %}
+                    </td>
+                    <td class="py-1">
+                      {% comment %}
+                        A tel: link, because this list exists to be phoned. The
+                        target is dialable digits only — apps/reports/dashboard.py
+                        strips whatever punctuation the operator typed — and the
+                        cell shows the number as it was written.
+                      {% endcomment %}
+                      {% if row.has_phone %}
+                        <a href="{{ row.tel }}" class="doc-code text-xs text-signal underline">
+                          {{ row.phone }}
+                        </a>
+                      {% else %}
+                        <span class="text-xs text-muted">no number</span>
+                      {% endif %}
+                    </td>
+                    <td class="py-1 text-xs text-alarm">{{ row.bucket }}</td>
+                    <td class="amount py-1 text-right text-alarm">{{ row.overdue_paisa|money }}</td>
+                    <td class="amount py-1 text-right">{{ row.outstanding_paisa|money }}</td>
+                  </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          {% else %}
+            <p class="empty">Nothing is past its due date.</p>
+          {% endif %}
+        </div>
+      </section>
+    {% endif %}
+
+    {# ============================================================= low stock #}
+    {% if board.shows_stock %}
+      <section>
+        <div class="mb-1 flex items-baseline justify-between gap-2">
+          <h2 class="text-xs font-semibold uppercase tracking-wide text-muted">Low stock</h2>
+          <a href="{% url 'reports:report' slug='stock-balance' %}"
+             class="text-xs text-signal underline">Stock balance</a>
+        </div>
+        <div class="rounded-sharp border border-rule bg-white p-2">
+          {% if board.low_stock %}
+            <table class="w-full text-sm">
+              <thead>
+                <tr>
+                  <th scope="col" class="py-1 text-left">Item</th>
+                  <th scope="col" class="py-1 text-right">On hand</th>
+                  <th scope="col" class="py-1 text-right">Level</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for item in board.low_stock %}
+                  <tr class="border-t border-rule">
+                    <td class="py-1">
+                      <a href="{{ item.url }}" class="text-signal underline">
+                        <span class="doc-code text-xs">{{ item.code }}</span> {{ item.name }}
+                      </a>
+                    </td>
+                    <td class="qty py-1 text-right {% if item.is_out %}text-alarm{% endif %}">
+                      {{ item.on_hand_display }}
+                    </td>
+                    <td class="qty py-1 text-right text-muted">
+                      {{ item.reorder_level_pieces|qty }}
+                    </td>
+                  </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+            <p class="mt-1 text-xs text-muted">
+              At or below the reorder level set on the item. The position is the stock
+              ledger summed up, never a field on the item.
+            </p>
+          {% else %}
+            <p class="empty">Nothing is at its reorder level.</p>
+          {% endif %}
+        </div>
+      </section>
+    {% endif %}
+
+    {# ===================================================== recent documents #}
+    {% if board.documents %}
+      <section class="lg:col-span-3">
+        <h2 class="mb-1 text-xs font-semibold uppercase tracking-wide text-muted">
+          Recent documents
+        </h2>
+        <div class="rounded-sharp border border-rule bg-white p-2">
+          <table class="w-full text-sm">
+            <thead>
+              <tr>
+                <th scope="col" class="py-1 text-left">Document</th>
+                <th scope="col" class="py-1 text-left">Type</th>
+                <th scope="col" class="py-1 text-left">Party</th>
+                <th scope="col" class="py-1 text-left">Date</th>
+                <th scope="col" class="py-1 text-left">Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% comment %}
+                Cancelled documents are on this list, watermarked by their chip
+                rather than hidden: it is a listing, and a cancelled document is
+                the correction somebody is looking for (CLAUDE.md §5).
+              {% endcomment %}
+              {% for document in board.documents %}
+                <tr class="border-t border-rule">
+                  <td class="py-1">
+                    <a href="{{ document.url }}" class="doc-code text-signal underline">
+                      {{ document.code }}
+                    </a>
+                  </td>
+                  <td class="py-1">{{ document.kind }}</td>
+                  <td class="py-1">{{ document.party }}</td>
+                  <td class="doc-date py-1">{{ document.posting_date|date:"d M Y" }}</td>
+                  <td class="py-1">{{ document.status|doc_status }}</td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </section>
+    {% endif %}
+  </div>
+
+  {% if not board.cards and not board.shows_money %}
+    <p class="mt-5 text-xs text-muted">
+      Financial figures are not shown on this login. Cash, receivables and the day's
+      takings need the books permission or the ability to collect money — ask an
+      administrator if you should have them.
+    </p>
+  {% endif %}
+{% endblock %}

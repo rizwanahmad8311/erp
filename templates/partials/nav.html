@@ -38,6 +38,19 @@
 
   <div class="flex flex-1 flex-wrap gap-x-6 gap-y-4 lg:flex-col lg:flex-nowrap lg:gap-y-4">
 
+    {% comment %}
+      The landing screen, behind the same permission its view checks. No group
+      heading over it: it is one entry and the page it opens is called Today.
+    {% endcomment %}
+    {% if perms.reports.view_reports %}
+      <div>
+        <a href="{% url 'dashboard' %}" class="nav-item"
+           {% if request.resolver_match.url_name == 'dashboard' %}aria-current="page"{% endif %}>
+          Dashboard
+        </a>
+      </div>
+    {% endif %}
+
     {% if perms.sales.view_salesinvoice %}
       <div>
         <p class="nav-group-label px-3 pb-1">Sales</p>

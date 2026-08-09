@@ -222,6 +222,13 @@ URLS: dict[str, dict] = {
         "allowed": {"Admin", "Accountant", "Operator", "Booker", "Viewer"},
     },
     # -- reports -------------------------------------------------------------
+    # The landing screen. Everybody in a group may open it; what is *on* it is
+    # a second question, answered per figure in apps/reports/dashboard.py and
+    # asserted in tests/test_dashboard.py.
+    "dashboard": {
+        "url": lambda f: url("dashboard"),
+        "allowed": {"Admin", "Accountant", "Operator", "Booker", "Viewer"},
+    },
     "report index": {
         "url": lambda f: url("reports:index"),
         "allowed": {"Admin", "Accountant", "Operator", "Booker", "Viewer"},

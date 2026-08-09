@@ -3,8 +3,15 @@ from django.contrib import admin
 from django.urls import include, path, re_path
 from django.views.static import serve
 
+from apps.reports.views import dashboard
+
 urlpatterns = [
     path("admin/", admin.site.urls),
+    # The site root, which is where LOGIN_REDIRECT_URL has always pointed. It
+    # lives in apps.reports because that is what it is — aggregation over the
+    # ledger — and it is mounted here rather than under /reports/ because the
+    # one thing a landing page has to be is the address people already type.
+    path("", dashboard, name="dashboard"),
     path("", include("apps.core.urls")),
     path("me/", include("apps.accounts.urls")),
     path("purchasing/", include("apps.purchasing.urls")),

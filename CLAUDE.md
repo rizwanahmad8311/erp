@@ -285,6 +285,7 @@ erp/
     payments/          receipts, payments, recovery
     reports/           read-only aggregation over the ledger
       catalog/         the reports themselves — accounting, stock, sales
+      dashboard.py     the landing screen at / — cards, trend, panels
       pdf/             ReportLab renderers — invoices, receipts, statements
     backup/            SQLite backup/restore for the Windows box
   static/src/          authored + vendored sources (Tailwind input, JS, fonts)
@@ -354,6 +355,7 @@ rather than by three people remembering.
 | `framework.py` | `ReportView` — one view, three formats, pagination, the index |
 | `exports.py` | the CSV writer, with the formula-injection guard |
 | `catalog/` | the eighteen reports, grouped by which table they read |
+| `dashboard.py` | the landing screen at `/`: the cards, the SVG sales trend, the panels, and the 60-second per-user cache |
 | `pdf/reports.py` | the generic report PDF: any registered report, landscape-aware |
 
 Adding a report means writing one `build(criteria) -> ReportResult` and calling
@@ -369,6 +371,32 @@ Two invariants the tests fail the build over:
   bounced cheque off in the period it bounced. A bounce does not reverse its
   receipt (§5), so a figure summed over payments alone counts money that never
   arrived.
+
+### The dashboard
+
+`/` is `apps/reports/dashboard.py`. It is a **view of the ledger**, not a
+summary of it: there is no dashboard table, no nightly rollup and no counter
+kept in step by a signal, and there must not be one (§6). Adding a figure means
+adding an aggregation over `apps.reports.ledger` or `apps.payments.recovery`.
+
+- **Every card links to the report that explains it**, filtered to the same day.
+  A number nobody can drill into is a number nobody trusts, so `Card` has no
+  path that leaves `url` empty. Reports are not route-scoped, so a booker who
+  walks one beat gets that beat as an ordinary `?route=` filter on the link —
+  the report stays the same report for everybody.
+- **Role decides what is *built*, not what is styled away.** `audience_for()`
+  answers it once: money at all (keeps the books, or collects it), the treasury
+  (`view_reports_financial`, and never for a route-scoped login — a bank balance
+  has no route share), and which routes are theirs. An Operator's dashboard
+  carries no rupee figure anywhere, and `tests/test_dashboard.py` asserts that
+  against the rendered HTML rather than against the context.
+- **Cached per user per day for `DASHBOARD_CACHE_SECONDS`** in the local-memory
+  cache — the only cached figures in the system, and the reason they may be
+  cached is that this screen is a summary and every report behind it is not.
+  Bump `dashboard.CACHE_VERSION` when the shape of anything cached changes.
+- **The chart is hand-rolled SVG**, geometry computed in integers in Python.
+  There is no charting library and there is not going to be one: §7 rules out a
+  CDN and §8 rules out anything with a build step.
 
 ### What apps/reports/pdf provides
 
