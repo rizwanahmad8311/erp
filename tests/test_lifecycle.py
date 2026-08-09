@@ -948,9 +948,27 @@ class TestMasterHistory:
 
 
 def _some_row(model):
-    """One saved row of a master, created if the fixtures did not already make one."""
+    """One saved row of a master **that has a historical record**.
+
+    The second half is load-bearing and was not always true. A master seeded by
+    a *data migration* has no history at all: the migration is handed
+    ``apps.get_model()``'s historical model (see
+    ``apps.accounting.chart.seed_chart_of_accounts``), and simple_history's
+    ``post_save`` receiver is registered on the live model, not on that one. So
+    the chart of accounts arrives in a fresh database with rows and no history.
+
+    That is correct behaviour — nobody changed those rows, so there is nothing
+    to record — but it is not what this test is about. Saving the row once gives
+    it the historical record the admin screen is supposed to render.
+
+    Without this, the test passed only on a reused test database where an
+    earlier ``TransactionTestCase`` flush had wiped the migration's rows and the
+    ``accounts`` fixture had re-seeded them through the live model.
+    """
     existing = model.objects.first()
     if existing is not None:
+        if not model.history.model.objects.filter(id=existing.pk).exists():
+            existing.save()
         return existing
     from apps.masters.models import Route, Seller
 

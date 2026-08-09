@@ -1,0 +1,94 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Nightly backup for the Windows PC, at 21:00. The exact command is in the
+  Arguments element at the bottom of this file.
+
+  (XML comments may not contain two hyphens in a row, which is why the flags are
+  not written out here. Do not paste them in.)
+
+  To import it, once, on the office machine:
+
+    1. Edit the three paths marked EDIT-ME below to match where the ERP is
+       installed. They are absolute on purpose: Task Scheduler runs with no
+       useful working directory and no PATH from your login.
+    2. Open Task Scheduler (press Start, type "Task Scheduler").
+    3. Action -> Import Task... -> pick this file.
+    4. On the General tab, tick "Run whether user is logged on or not" and
+       enter the password for the account when it asks.
+
+  Or from an Administrator command prompt:
+
+    schtasks /Create /XML "C:\erp\deploy\erp-backup-nightly.xml" /TN "ERP Nightly Backup"
+
+  Why 21:00: the counter is shut, the day's postings are in, and the machine is
+  still switched on. A backup at 02:00 is a backup that never runs, because the
+  PC is off.
+
+  StartWhenAvailable is set, so if the machine was off at 21:00 the backup runs
+  as soon as it is switched on rather than being skipped until tomorrow.
+
+  The task reports the command's exit code, which is what makes the Last Run
+  Result column meaningful:
+     0x0  everything worked (an unplugged USB drive counts as working)
+     0x1  the backup was taken but a copy failed - usually Google Drive
+     0x2  no backup was taken at all - look at this one today
+-->
+<Task version="1.4" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
+  <RegistrationInfo>
+    <Description>Backs up the ERP database and media, and uploads a copy to Google Drive.</Description>
+    <URI>\ERP Nightly Backup</URI>
+  </RegistrationInfo>
+
+  <Triggers>
+    <CalendarTrigger>
+      <StartBoundary>2026-01-01T21:00:00</StartBoundary>
+      <Enabled>true</Enabled>
+      <ScheduleByDay>
+        <DaysInterval>1</DaysInterval>
+      </ScheduleByDay>
+    </CalendarTrigger>
+  </Triggers>
+
+  <Principals>
+    <Principal id="Author">
+      <LogonType>Password</LogonType>
+      <RunLevel>LeastPrivilege</RunLevel>
+    </Principal>
+  </Principals>
+
+  <Settings>
+    <MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>
+    <DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>
+    <StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>
+    <AllowHardTerminate>true</AllowHardTerminate>
+    <StartWhenAvailable>true</StartWhenAvailable>
+    <RunOnlyIfNetworkAvailable>false</RunOnlyIfNetworkAvailable>
+    <IdleSettings>
+      <StopOnIdleEnd>false</StopOnIdleEnd>
+      <RestartOnIdle>false</RestartOnIdle>
+    </IdleSettings>
+    <AllowStartOnDemand>true</AllowStartOnDemand>
+    <Enabled>true</Enabled>
+    <Hidden>false</Hidden>
+    <RunOnlyIfIdle>false</RunOnlyIfIdle>
+    <WakeToRun>false</WakeToRun>
+    <!-- An upload that has hung for two hours is not going to finish. -->
+    <ExecutionTimeLimit>PT2H</ExecutionTimeLimit>
+    <Priority>7</Priority>
+    <RestartOnFailure>
+      <Interval>PT15M</Interval>
+      <Count>2</Count>
+    </RestartOnFailure>
+  </Settings>
+
+  <Actions Context="Author">
+    <Exec>
+      <!-- EDIT-ME: the Python inside the ERP's virtualenv, not a system one. -->
+      <Command>C:\erp\.venv\Scripts\python.exe</Command>
+      <!-- EDIT-ME: the full path to manage.py. -->
+      <Arguments>C:\erp\manage.py backup --push --settings=config.settings.prod</Arguments>
+      <!-- EDIT-ME: the folder holding manage.py. -->
+      <WorkingDirectory>C:\erp</WorkingDirectory>
+    </Exec>
+  </Actions>
+</Task>

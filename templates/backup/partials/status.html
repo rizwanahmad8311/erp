@@ -1,0 +1,152 @@
+{% comment %}
+  The polled half of the backup screen: the age banner, the destinations, and
+  the history table.
+
+  It re-polls itself only while a run is in flight — `hx-trigger` is `none` once
+  it is not — so an idle screen sitting open at the counter is not asking the
+  server for this every two seconds all day.
+{% endcomment %}
+
+<div id="backup-status"
+     hx-get="{% url 'backup:status' %}"
+     hx-trigger="{% if running %}load delay:2s{% else %}none{% endif %}"
+     hx-swap="outerHTML">
+
+  {# ------------------------------------------------------ last successful #}
+  {% comment %}
+    The one number somebody should be able to read from the doorway. Over
+    BACKUP_STALE_HOURS it goes rust — the same colour cancelled documents and
+    reversing entries use, because "there is no recent backup" belongs in the
+    same category of wrong.
+  {% endcomment %}
+  <div class="mt-5 border-t border-rule pt-3">
+    {% if last_success %}
+      <p class="text-sm {% if is_stale %}font-semibold text-alarm{% else %}text-ink{% endif %}">
+        Last backup
+        <span class="doc-date">{{ last_success.created_at|date:"D d M Y, H:i" }}</span>
+        — {{ last_success.created_at|timesince }} ago
+        {% if is_stale %}
+          <span class="block text-xs font-normal">
+            That is more than {{ stale_after_hours }} hours. Press “Back up now”, and
+            check that the nightly task is still scheduled.
+          </span>
+        {% endif %}
+      </p>
+    {% else %}
+      <p class="text-sm font-semibold text-alarm">
+        No backup has ever been taken on this machine.
+        <span class="block text-xs font-normal">Press “Back up now” to take the first one.</span>
+      </p>
+    {% endif %}
+  </div>
+
+  {# ----------------------------------------------------------- where it goes #}
+  <div class="mt-4 grid gap-4 md:grid-cols-3">
+    <div>
+      <p class="nav-group-label">This machine</p>
+      <p class="mt-1 text-sm text-ink">Always written.</p>
+    </div>
+    <div>
+      <p class="nav-group-label">USB drive</p>
+      <p class="mt-1 text-sm {% if usb_path %}text-ink{% else %}text-muted{% endif %}">
+        {% if usb_path %}
+          <span class="font-mono text-xs">{{ usb_path }}</span>
+        {% else %}
+          Not set up. A backup still runs without it.
+        {% endif %}
+      </p>
+    </div>
+    <div>
+      <p class="nav-group-label">Google Drive</p>
+      {% if rclone_ok %}
+        <p class="mt-1 text-sm text-ink"><span class="font-mono text-xs">{{ remote }}</span></p>
+      {% else %}
+        {% comment %}
+          A missing rclone is the most likely thing to be wrong on a fresh
+          machine, and the message from the service layer is written as
+          instructions rather than as an error. It is shown in full here rather
+          than truncated, because the person reading it is going to follow it.
+        {% endcomment %}
+        <p class="mt-1 text-sm text-muted">Not set up yet.</p>
+        <details class="mt-1">
+          <summary class="cursor-pointer text-xs text-signal underline underline-offset-2">
+            How to set it up
+          </summary>
+          <pre class="mt-1 whitespace-pre-wrap font-mono text-xs text-muted">{{ rclone_message }}</pre>
+        </details>
+      {% endif %}
+    </div>
+  </div>
+
+  {# ------------------------------------------------------------------ history #}
+  <h2 class="mt-6 font-display text-base font-semibold tracking-tight">History</h2>
+
+  <div class="-mx-4 mt-2 overflow-x-auto px-4">
+    <table class="table">
+      <thead>
+        <tr>
+          <th scope="col">When</th>
+          <th scope="col">Destination</th>
+          <th scope="col">Result</th>
+          <th scope="col" class="text-right">Size</th>
+          <th scope="col">File</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for log in logs %}
+          <tr>
+            <td class="doc-date whitespace-nowrap">{{ log.created_at|date:"d M Y H:i" }}</td>
+            <td class="whitespace-nowrap">{{ log.get_destination_display }}</td>
+            <td class="whitespace-nowrap">
+              {% comment %}
+                Three outcomes, three weights. A warning is not a failure — an
+                unplugged USB stick must not read as a broken backup — but it is
+                not success either, or a stick that has been out of the machine
+                for a month looks exactly like one that is working.
+              {% endcomment %}
+              {% if log.outcome == "OK" %}
+                <span class="chip chip-posted">OK</span>
+              {% elif log.outcome == "WARNING" %}
+                <span class="chip chip-draft">Skipped</span>
+              {% else %}
+                <span class="chip chip-cancelled">Failed</span>
+              {% endif %}
+            </td>
+            <td class="amount">{% if log.size_bytes %}{{ log.size_display }}{% endif %}</td>
+            <td>
+              {% if log.filename %}
+                {% if may_download %}
+                  <a href="{% url 'backup:download' filename=log.filename %}"
+                     class="doc-code text-signal underline underline-offset-2">{{ log.filename }}</a>
+                {% else %}
+                  <span class="doc-code text-muted">{{ log.filename }}</span>
+                {% endif %}
+              {% endif %}
+            </td>
+          </tr>
+          {% if log.message %}
+            {% comment %}
+              `summary` is the first line only — see the model. The rclone
+              message is several paragraphs of instructions, and repeating them
+              under every failed row buries the history they annotate. The full
+              text is in the Google Drive panel above, which is where somebody
+              about to follow them is looking anyway.
+            {% endcomment %}
+            <tr>
+              <td colspan="5" class="pb-2 text-xs {% if log.outcome == 'FAILED' %}text-alarm{% else %}text-muted{% endif %}">
+                {{ log.summary }}
+              </td>
+            </tr>
+          {% endif %}
+        {% empty %}
+          <tr>
+            <td colspan="5" class="empty">
+              Nothing has been backed up yet.
+              Press <span class="empty-action">Back up now</span> to take the first one.
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>

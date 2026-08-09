@@ -266,6 +266,41 @@ Therefore:
 - Static assets are already built and committed; production only runs
   `collectstatic`, which copies files.
 
+## 9. Backups: VACUUM INTO, and a restore a non-developer can run.
+
+- A backup is **`VACUUM INTO`, never a file copy.** SQLite in WAL mode is three
+  files and the recent transactions live in the `-wal`; copying `erp.sqlite3`
+  off a running system produces a database that opens, looks fine, and is
+  missing the last few bills. That is the worst failure available here, because
+  nobody finds out until they restore it.
+- The archive is a zip holding the database, the media folder and a
+  `manifest.json` — timestamp, app version, row counts, and a **SHA-256 of the
+  database file** (not of the zip; a zip records mtimes and would never hash the
+  same twice). `restore` verifies that hash **before it touches anything.**
+- **Restore always takes a snapshot of the current database first**, and refuses
+  to run while the service is up. Both are there because the person doing this
+  is not a developer and is doing it on a bad day.
+- Google Drive goes through **rclone**, shelled out to — never the Google API.
+  No OAuth flow to maintain in this repo and no client secret in git; somebody
+  runs `rclone config` once. A missing or unconfigured rclone prints
+  instructions, never a traceback.
+- **An absent USB drive is a warning, not a failure.** The stick spends most of
+  its life out of the machine, and a run that stopped there would take the
+  offsite copy down with it.
+- Retention is **counts, not ages** — 14 daily, 8 weekly, 12 monthly. "Delete
+  anything older than 14 days" on a PC that was switched off for three weeks
+  deletes every backup it has.
+- Every attempt is a `BackupLog` row **per destination**, because the three fail
+  for three different reasons and "backup failed" does not say which. The log is
+  registered read-only in the admin for the same reason the ledgers are (§3).
+- The backup itself is a **file on disk**, never a row. A backup you can only
+  reach through the application is a backup you cannot use on the morning the
+  application will not start.
+- Operator documentation lives in `deploy/README.md` and must stay in step with
+  the commands. `tests/test_backup.py::TestTheRoundTrip` seeds, backs up, wipes
+  the database file and restores, asserting the row counts and the account
+  balances match exactly.
+
 ---
 
 ## Layout
@@ -293,7 +328,8 @@ erp/
   templates/
   tests/
     testapp/           concrete models for testing the abstract bases (pytest only)
-  data/                erp.sqlite3 lives here (git-ignored)
+  deploy/              the Task Scheduler XML and the backup runbook
+  data/                erp.sqlite3 and data/backups/ live here (git-ignored)
   media/               the uploaded company logo (git-ignored)
 ```
 

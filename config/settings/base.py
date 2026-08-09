@@ -205,6 +205,49 @@ MEDIA_ROOT = BASE_DIR / "media"
 
 
 # --------------------------------------------------------------------------
+# Backup
+# --------------------------------------------------------------------------
+# The whole installation is one SQLite file and one media folder. Everything
+# here is tuned for the same constraint as the rest of the deployment: no
+# internet on the box, and the person running it is not a developer.
+#
+# Stamped into every manifest, so a file found on a USB stick in a year says
+# which build wrote it.
+APP_VERSION = "0.1.0"
+
+#: Where archives are written. Git-ignored — these are data, not source.
+BACKUP_ROOT = BASE_DIR / "data" / "backups"
+
+#: The second local copy, intended for a USB drive. Empty means "no USB copy",
+#: which is the default because a path that does not exist on the machine would
+#: otherwise warn on every single run.
+#:
+#: On Windows this is a drive letter: BACKUP_USB_PATH=E:\erp-backups
+BACKUP_USB_PATH = env("BACKUP_USB_PATH", default="")
+
+#: Google Drive through rclone rather than the Google API — no OAuth flow to
+#: maintain in this repo, no client secret in git, and the person who sets it up
+#: runs `rclone config` once and answers questions in a browser.
+BACKUP_RCLONE_BIN = env("BACKUP_RCLONE_BIN", default="rclone")
+BACKUP_RCLONE_REMOTE = env("BACKUP_RCLONE_REMOTE", default="gdrive:erp-backups")
+
+#: How long to let a push run before giving up. A backup that hangs forever is
+#: a scheduled task that never finishes and a Task Scheduler entry that quietly
+#: stops firing.
+BACKUP_RCLONE_TIMEOUT = env.int("BACKUP_RCLONE_TIMEOUT", default=900)
+
+#: Grandfather-father-son. Kept as counts rather than ages so that a machine
+#: switched off for three weeks still keeps fourteen of whatever it does have,
+#: instead of deleting everything older than fourteen days and leaving nothing.
+BACKUP_KEEP_DAILY = env.int("BACKUP_KEEP_DAILY", default=14)
+BACKUP_KEEP_WEEKLY = env.int("BACKUP_KEEP_WEEKLY", default=8)
+BACKUP_KEEP_MONTHLY = env.int("BACKUP_KEEP_MONTHLY", default=12)
+
+#: When the admin screen starts showing the last-backup age in the alarm colour.
+BACKUP_STALE_HOURS = env.int("BACKUP_STALE_HOURS", default=48)
+
+
+# --------------------------------------------------------------------------
 # Unfold admin
 # --------------------------------------------------------------------------
 # The sidebar is grouped by what a person is doing rather than by Django app

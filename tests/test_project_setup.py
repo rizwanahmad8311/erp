@@ -421,20 +421,37 @@ class TestAppRegistry:
         ]
         assert not offenders, f"CompanyProfile must hold no figures: {offenders}"
 
-    def test_backup_stores_nothing(self):
-        """The backup app holds permissions and no data.
+    def test_backup_holds_permissions_and_a_run_log_and_nothing_else(self):
+        """Two models, and neither one is business data.
 
-        A backup is a file on disk, not a row. ``BackupPolicy`` exists only
-        because Django attaches a permission to a model, and it is unmanaged —
-        ``migrate`` creates no table for it. When a run log arrives it will be a
-        real model and this test should say so.
+        ``BackupPolicy`` exists only because Django attaches a permission to a
+        model. It is unmanaged — ``migrate`` creates no table for it.
+
+        ``BackupLog`` is a record of what the backup command did: which file,
+        which destination, whether it worked. **The backup itself is still a
+        file on disk, not a row** — a backup you can only find through the
+        application is a backup you cannot use on the morning the application
+        will not start.
         """
         from django.apps import apps as django_apps
 
-        models = [m for m in django_apps.get_models() if m._meta.app_label == "backup"]
-        assert [m.__name__ for m in models] == ["BackupPolicy"]
-        assert not models[0]._meta.managed, "the backup app stores nothing"
-        assert [f.name for f in models[0]._meta.get_fields()] == ["id"]
+        from apps.backup.models import BackupLog, BackupPolicy
+
+        models = {m.__name__ for m in django_apps.get_models() if m._meta.app_label == "backup"}
+        assert models == {"BackupPolicy", "BackupLog"}
+
+        assert not BackupPolicy._meta.managed, "the permission holder stores nothing"
+        assert [f.name for f in BackupPolicy._meta.get_fields()] == ["id"]
+
+        # The log records files, never figures. A paisa value in here would be a
+        # second place money lives, and it would not be the ledger (CLAUDE.md §6).
+        banned = ("paisa", "balance", "amount", "total")
+        offenders = [
+            f.name
+            for f in BackupLog._meta.get_fields()
+            if getattr(f, "attname", None) and any(n in f.name for n in banned)
+        ]
+        assert not offenders, f"the backup log must hold no monetary figure: {offenders}"
 
     def test_core_holds_only_infrastructure(self):
         from django.apps import apps as django_apps

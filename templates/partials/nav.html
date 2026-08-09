@@ -94,6 +94,21 @@
         </a>
       </div>
     {% endif %}
+
+    {% comment %}
+      Behind backup.run_backup, which only Admin holds. Under its own heading
+      rather than beside the reports: it is the one screen here that is about
+      the installation rather than about the business.
+    {% endcomment %}
+    {% if perms.backup.run_backup %}
+      <div>
+        <p class="nav-group-label px-3 pb-1">System</p>
+        <a href="{% url 'backup:index' %}" class="nav-item"
+           {% if request.resolver_match.app_name == 'backup' %}aria-current="page"{% endif %}>
+          Backup
+        </a>
+      </div>
+    {% endif %}
   </div>
 
   {# ------------------------------------------------------------- the login #}

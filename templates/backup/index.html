@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+
+{% block title %}Backup{% endblock %}
+
+{% block content %}
+  <div class="flex flex-wrap items-start justify-between gap-3">
+    <div>
+      <h1 class="font-display text-lg font-semibold tracking-tight">Backup</h1>
+      <p class="mt-1 max-w-prose text-sm text-muted">
+        A backup is one zip file holding the database and the uploaded logo. It is
+        written to this machine, copied to the USB drive if one is plugged in, and
+        pushed to Google Drive.
+      </p>
+    </div>
+
+    {% comment %}
+      The button posts and redirects; the run itself happens on a thread, so the
+      page comes back immediately even when the Drive push takes a minute.
+    {% endcomment %}
+    <form method="post" action="{% url 'backup:run' %}" class="flex items-center gap-2">
+      {% csrf_token %}
+      <input type="hidden" name="push" value="1">
+      <button type="submit" class="btn btn-signal" {% if running %}disabled{% endif %}>
+        {% if running %}Backing up…{% else %}Back up now{% endif %}
+      </button>
+    </form>
+  </div>
+
+  {% comment %}
+    Everything below refreshes itself while a run is in flight. The fragment
+    carries its own `id`, `hx-get` and `hx-trigger` and swaps `outerHTML`, so it
+    replaces itself and decides for itself when to stop — no wrapper here, or
+    the swap would nest a second copy inside the first on every poll.
+  {% endcomment %}
+  {% include "backup/partials/status.html" %}
+{% endblock %}
