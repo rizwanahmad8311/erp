@@ -1004,3 +1004,52 @@ class TestAmendOnlyFromCancelled:
         """
         with pytest.raises(IllegalTransition, match="only a CANCELLED"):
             service(stocked, user=user)
+
+
+class TestADocumentIsAmendedOnce:
+    """The amendment chain is linear. Found by the property test, not by a person.
+
+    ``tests/test_invariants_property.py`` generated
+    ``sell -> cancel -> amend -> amend`` against the same document and hit a raw
+    ``IntegrityError``: both amendments were numbered from the same root and
+    claimed the same code.
+
+    The traceback was the visible half. The real problem is what a fork *means* —
+    two live documents each claiming to be the correction of the same reversed
+    bill, which is one correction counted twice.
+    """
+
+    def test_amending_twice_is_refused_and_names_the_existing_amendment(
+        self, stocked, shop, warehouses, oil, user
+    ):
+        invoice = sales.post_sales_invoice(_sale(shop, warehouses.main, oil), user=user)
+        sales.cancel_sales_invoice(invoice, user=user, reason=REASON)
+        invoice.refresh_from_db()
+
+        first = sales.amend_sales_invoice(invoice, user=user)
+        invoice.refresh_from_db()
+
+        with pytest.raises(IllegalTransition) as caught:
+            sales.amend_sales_invoice(invoice, user=user)
+
+        message = str(caught.value)
+        assert first.code in message, "the refusal must name the amendment that already exists"
+        assert "amended once" in message
+
+    def test_the_chain_stays_linear_rather_than_forking(self, stocked, shop, warehouses, oil, user):
+        """``SI-...-1`` then ``-2``, never two ``-1``s."""
+        invoice = sales.post_sales_invoice(_sale(shop, warehouses.main, oil), user=user)
+        sales.cancel_sales_invoice(invoice, user=user, reason=REASON)
+        invoice.refresh_from_db()
+
+        first = sales.amend_sales_invoice(invoice, user=user)
+        sales.post_sales_invoice(first, user=user)
+        first.refresh_from_db()
+        sales.cancel_sales_invoice(first, user=user, reason="and again")
+        first.refresh_from_db()
+
+        second = sales.amend_sales_invoice(first, user=user)
+
+        assert first.code == f"{invoice.code}-1"
+        assert second.code == f"{invoice.code}-2"
+        assert [d.code for d in second.chain()] == [invoice.code, first.code, second.code]

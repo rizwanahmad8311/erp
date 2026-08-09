@@ -83,3 +83,15 @@ addopts = "--ds=config.settings.test --reuse-db --strict-markers -ra"
 markers = [
     "posting: exercises a ledger/stock posting service inside a transaction",
 ]
+
+
+[tool.coverage.run]
+# Excluded from the coverage figure because it is excluded from the product:
+# `make build-release` deletes seed_volume.py and the profile settings before
+# the zip is built (see tests/test_deploy.py). Measuring them would report a
+# number for code the office PC never receives.
+omit = [
+    "apps/core/management/commands/seed_volume.py",
+    "config/settings/profile.py",
+    "*/migrations/*",
+]

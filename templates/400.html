@@ -1,0 +1,33 @@
+{% comment %} Self-contained, for the same reason as 500.html. {% endcomment %}
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>That request could not be read</title>
+    <style>
+      :root { --paper:#fbfbf9; --ink:#1a1d21; --muted:#6e7178; }
+      body { background:var(--paper); color:var(--ink); margin:0;
+             font-family:ui-sans-serif, system-ui, sans-serif; line-height:1.5; }
+      main { max-width:34rem; margin:4rem auto; padding:0 1.5rem; }
+      h1 { font-size:1.25rem; margin:0 0 .5rem; letter-spacing:-.011em; }
+      .muted { color:var(--muted); font-size:.875rem; }
+      a { color:#0b5d51; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>That request could not be read</h1>
+      <p class="muted">
+        Almost always a page that was left open overnight: the security token on
+        the form expired, so the browser and the server no longer agree.
+      </p>
+      <p class="muted">
+        <strong>Nothing was saved.</strong> Open the screen again from the menu and
+        re-enter what you were typing — do not use the back button, which will send
+        the same expired form a second time.
+      </p>
+      <p><a href="/">Back to the dashboard</a></p>
+    </main>
+  </body>
+</html>

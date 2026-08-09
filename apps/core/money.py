@@ -55,7 +55,12 @@ def round_paisa(amount: Decimal) -> int:
         raise MoneyError(f"round_paisa expects a Decimal, got {type(amount).__name__}")
     try:
         return int(amount.quantize(_ONE, rounding=ROUNDING))
-    except DecimalException as exc:  # NaN, Infinity, overflow
+    except (DecimalException, ValueError) as exc:
+        # ValueError is not redundant. Infinity raises InvalidOperation from
+        # quantize() and is a DecimalException, but **NaN quantizes happily** —
+        # it returns Decimal('NaN'), and it is int() that then raises
+        # ValueError. Catching only DecimalException let a NaN out of here as a
+        # raw traceback, which is the one thing this function exists to prevent.
         raise MoneyError(f"Cannot round {amount!r} to whole paisa") from exc
 
 

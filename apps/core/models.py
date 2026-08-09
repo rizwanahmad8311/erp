@@ -522,6 +522,26 @@ class DocumentModel(TimeStampedModel):
                 f"document can be amended. Cancel it first."
             )
 
+        # A document is amended **once**. Amending it a second time forks the
+        # chain: both replacements would be numbered from the same root and
+        # would claim the same code, which used to surface as a raw
+        # IntegrityError on the second one. Worse than the traceback is what it
+        # means — two live documents each claiming to be the correction of the
+        # same reversed bill, which is the correction counted twice.
+        #
+        # The chain is linear on purpose (CLAUDE.md §5): SI-2026-000123 -> -1 ->
+        # -2, never two -1s. To correct an amendment, cancel *it* and amend that.
+        #
+        # Found by tests/test_invariants_property.py, which generated
+        # sell -> cancel -> amend -> amend against the same document.
+        existing = self.amendments().first()
+        if existing is not None:
+            raise IllegalTransition(
+                f"{type(self).__name__} {self.code} has already been amended into "
+                f"{existing.code}. A document is amended once — to correct the "
+                f"amendment, cancel {existing.code} and amend that instead."
+            )
+
         carried = {
             field.attname: getattr(self, field.attname)
             for field in self._meta.concrete_fields

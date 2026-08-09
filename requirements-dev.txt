@@ -5,3 +5,11 @@ pytest>=8.3
 pytest-django>=4.9
 model-bakery>=1.19
 ruff>=0.6
+
+# Property-based testing. Generates random sequences of post/cancel/amend and
+# checks the ledger invariants after every step — the bugs example-based tests
+# miss are the ones nobody thought to write an example for.
+hypothesis>=6.100
+
+# Coverage, for the audit of apps/core and apps/accounting.
+pytest-cov>=5.0

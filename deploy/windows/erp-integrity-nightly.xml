@@ -1,0 +1,100 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Nightly integrity check for the Windows PC, at 21:05, five minutes after
+  the backup, so the backup exists before anything starts looking at the books.
+  The exact command is in the Arguments element at the bottom of this file.
+
+  (XML comments may not contain two hyphens in a row, which is why the flags are
+  not written out here. Do not paste them in.)
+
+  Step 9 of INSTALL-WINDOWS.md walks through this with screenshots. In short,
+  once, on the office machine:
+
+    1. The three paths marked EDIT-ME below assume the ERP is at C:\erp, which
+       is what INSTALL-WINDOWS.md tells the installer to use. If it went
+       somewhere else, edit all three. They are absolute on purpose: Task
+       Scheduler runs with no useful working directory and no PATH from your
+       login.
+    2. Open Task Scheduler (press Start, type "Task Scheduler").
+    3. Action -> Import Task... -> pick this file.
+    4. On the General tab, tick "Run whether user is logged on or not" and
+       "Run with highest privileges", then enter the password for the account
+       when it asks.
+
+  Or from an Administrator command prompt:
+
+    schtasks /Create /XML "C:\erp\deploy\windows\erp-backup-nightly.xml" /TN "ERP Nightly Backup"
+
+  Why 21:05: the counter is shut and the day's postings are in, and the backup
+  at 21:00 has finished. Order matters: if the check finds a problem, the
+  backup taken minutes earlier is the copy somebody will want to compare
+  against.
+
+  StartWhenAvailable is set, so if the machine was off at 21:00 the backup runs
+  as soon as it is switched on rather than being skipped until tomorrow.
+
+  The task reports the command's exit code, which is what makes the Last Run
+  Result column meaningful:
+     0x0  the books balance
+     0x1  at least one check FAILED - the dashboard will be showing a red
+          banner about it, and somebody needs to look today
+-->
+<Task version="1.4" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
+  <RegistrationInfo>
+    <Description>Checks the ledger against itself and records the result for the dashboard.</Description>
+    <URI>\ERP Nightly Integrity Check</URI>
+  </RegistrationInfo>
+
+  <Triggers>
+    <CalendarTrigger>
+      <StartBoundary>2026-01-01T21:05:00</StartBoundary>
+      <Enabled>true</Enabled>
+      <ScheduleByDay>
+        <DaysInterval>1</DaysInterval>
+      </ScheduleByDay>
+    </CalendarTrigger>
+  </Triggers>
+
+  <Principals>
+    <Principal id="Author">
+      <LogonType>Password</LogonType>
+      <RunLevel>LeastPrivilege</RunLevel>
+    </Principal>
+  </Principals>
+
+  <Settings>
+    <MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>
+    <DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>
+    <StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>
+    <AllowHardTerminate>true</AllowHardTerminate>
+    <StartWhenAvailable>true</StartWhenAvailable>
+    <RunOnlyIfNetworkAvailable>false</RunOnlyIfNetworkAvailable>
+    <IdleSettings>
+      <StopOnIdleEnd>false</StopOnIdleEnd>
+      <RestartOnIdle>false</RestartOnIdle>
+    </IdleSettings>
+    <AllowStartOnDemand>true</AllowStartOnDemand>
+    <Enabled>true</Enabled>
+    <Hidden>false</Hidden>
+    <RunOnlyIfIdle>false</RunOnlyIfIdle>
+    <WakeToRun>false</WakeToRun>
+    <!-- Five aggregates over the ledger. Anything past ten minutes means the
+         database is in trouble in its own right. -->
+    <ExecutionTimeLimit>PT10M</ExecutionTimeLimit>
+    <Priority>7</Priority>
+    <!-- No RestartOnFailure. A failing integrity check is not a transient
+         error and re-running it will simply fail again; the result is already
+         recorded and on the dashboard. -->
+  </Settings>
+
+  <Actions Context="Author">
+    <Exec>
+      <!-- EDIT-ME: the Python inside the ERP's virtualenv, not a system one. -->
+      <Command>C:\erp\.venv\Scripts\python.exe</Command>
+      <!-- EDIT-ME: the full path to manage.py. -->
+      <Arguments>C:\erp\manage.py check_integrity --quiet --settings=config.settings.prod</Arguments>
+      <!-- EDIT-ME: the folder holding manage.py. -->
+      <WorkingDirectory>C:\erp</WorkingDirectory>
+    </Exec>
+  </Actions>
+</Task>

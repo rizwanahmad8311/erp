@@ -88,6 +88,11 @@ MIDDLEWARE = [
     # changed. This redirects every page to the password screen until it is.
     # After AuthenticationMiddleware, for the same reason as the line above.
     "apps.accounts.middleware.ForcePasswordChangeMiddleware",
+    # Last, so its process_exception runs FIRST on the way out — Django unwinds
+    # exception hooks in reverse order. It stamps a short reference on every
+    # request and logs it beside the traceback, which is what the 500 page tells
+    # the operator to quote. See apps/core/errors.py.
+    "apps.core.errors.ErrorReferenceMiddleware",
 ]
 
 ROOT_URLCONF = "config.urls"

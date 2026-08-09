@@ -315,6 +315,125 @@ Therefore:
   the database file and restores, asserting the row counts and the account
   balances match exactly.
 
+## 10. The books check themselves, nightly.
+
+- `manage.py check_integrity` asks five questions: the trial balance is zero,
+  every voucher balances **on its own**, no ledger entry is orphaned, stock
+  balances match the sum of their entries, and no POSTED document is missing its
+  ledger rows. It runs at 21:05, five minutes after the backup, so the copy
+  taken at 21:00 is the one to compare against if it finds something.
+- **Per-voucher balance is the useful check, not the trial balance.** A system
+  can total to zero with two documents wrong in opposite directions, and the
+  trial balance will never say so.
+- It is **read-only and never repairs anything**. A correction is a reversing
+  entry somebody decides to post, not something a scheduled job does at 21:05
+  with nobody watching.
+- The result is stored in `IntegrityRun` and the dashboard shows it **only when
+  it is bad or stale**. A green banner every morning is a banner nobody reads by
+  Wednesday, and that is the place the bad news has to appear.
+- `voucher_type` holds the **bare class name** (`SalesInvoice`), not the
+  app-qualified label — see `VoucherRef.of`. Matching on `sales.SalesInvoice`
+  finds nothing and reports every posted document as missing.
+
+## 11. Year-end is a document, not a script.
+
+- `manage.py close_fiscal_year <year>` brings every income and expense account
+  to zero and carries the profit to Retained Earnings (`3200`).
+- **`--dry-run` prints the same plan the real run posts** — both call
+  `yearend.build_plan`, so the dry run is not a second implementation that can
+  drift from the first.
+- `FiscalYearClose` inherits `DocumentModel` like everything else that writes to
+  the ledger (§5). It therefore has a code, a status, and a cancellation that
+  writes the mirror entries. A closing entry that could not be reversed would be
+  the one posting in this system with no way back — and year-end is exactly when
+  a late December bill turns up.
+- **One *live* close per year, not one row per year.** A plain `unique=True` on
+  `fiscal_year` looked right and was wrong: a cancelled close kept the slot
+  forever, so a reopened year could never be closed again. It is a
+  `UniqueConstraint` with `condition=~Q(status="CANCELLED")`.
+- **Nothing resets document numbering, and nothing should.** Sequences are keyed
+  by `(prefix, fiscal_year)`, so 2027 already starts at 1. Editing
+  `DocumentSequence.last_number` by hand is what the read-only admin prevents.
+
+## 12. No traceback ever reaches an operator.
+
+- **`CoreError` is a business refusal** — over the credit limit, short of stock,
+  a document something depends on. Every view catches it and puts the sentence
+  beside the field. These are written for somebody who is not a developer, so
+  they say what to do, not what failed.
+- **Anything else is a bug**, and goes through `apps/core/errors.py`: the
+  traceback is logged with a short reference, and the operator sees a page
+  carrying the same reference. `logs/erp.log` rotates and is capped, because an
+  uncapped log fills the disk and a full disk stops the ERP and the backups
+  together.
+- The 500 page's most important sentence is **"Nothing was saved"**. An operator
+  who does not know whether the posting landed will either re-enter it and
+  double it, or not and lose it.
+- The reference alphabet has no vowels and no `0/O/1/I/L`: it gets read down a
+  telephone.
+- Error templates are **self-contained and do not extend `base.html`** — whatever
+  broke may be the navigation or the context processors, and an error page that
+  needs those shows a second error.
+
+## 13. Property-based tests, and what they found.
+
+- `tests/test_invariants_property.py` generates random sequences of
+  post / cancel / amend / receive and re-checks four invariants after **every
+  step**: trial balance zero, every voucher balanced on its own, stock equal to
+  the sum of its entries, and a cancelled document netting to exactly zero on
+  every account it touched.
+- Business refusals are **counted, not failed**, and tagged as Hypothesis events
+  — so `--hypothesis-show-statistics` shows whether a run actually posted
+  anything, or passed by refusing everything.
+- Two real bugs came out of it and both are now regression-tested:
+  - **Amending the same cancelled document twice** forked the chain, produced a
+    duplicate code and surfaced as a raw `IntegrityError`. A document is amended
+    once; to correct an amendment, cancel *it* and amend that.
+  - **`round_paisa(Decimal("NaN"))`** escaped as a `ValueError`. `Infinity`
+    raises `InvalidOperation` from `quantize`, but NaN quantizes happily and it
+    is `int()` that raises — so the `except DecimalException` never saw it.
+- Run it harder when touching posting:
+  `ERP_PROPERTY_EXAMPLES=2000 pytest tests/test_invariants_property.py`.
+
+## 14. Performance scales with open items, not with the ledger.
+
+- Measured against **50,000 invoices and 285,000 ledger entries**. The recovery
+  workspace, the ageing ladder and the dashboard cost time in proportion to the
+  number of **unsettled** items; settled bills are cheap.
+
+  | open items | dashboard | ageing | recovery |
+  | ---------- | --------- | ------ | -------- |
+  | 7,500 | 155 ms | 142 ms | 267 ms |
+  | 15,000 | 286 ms | 238 ms | 451 ms |
+  | 50,000 | 1,566 ms | 1,097 ms | 2,260 ms |
+
+- A business writing 50,000 invoices a year and collecting most of them sits in
+  the first row. The last row is a business that has not been paid all year.
+- `ledger_party_voucher_idx` covers the party/voucher GROUP BY those three
+  screens share: 178 ms → 94 ms at 200,000 entries, by removing the temp B-tree.
+  `tests/test_performance.py` asserts the query plan still uses it.
+- **If an installation ever approaches the last row**, bound the recovery
+  computation by date or materialise open items into a snapshot table derived
+  from the ledger. Do **not** add a balance column to the invoice header (§6).
+- The real regression guard is the **query count**, not the timing. A page whose
+  query count is constant as rows grow cannot have developed an N+1.
+- Profile with `config.settings.profile`, which uses `data/profile.sqlite3` so
+  `seed_volume` can never be pointed at the development database. It bypasses
+  the posting services deliberately — it measures the read path, and a *posting*
+  benchmark must never be quoted from it.
+
+## 15. Ten operators post at once, and it holds.
+
+- `tests/test_concurrency.py` runs ten (verified to forty) real threads through
+  a complete posting — draft, line, ledger, stock — released together from a
+  barrier. No duplicate codes, no `database is locked`, every posting complete,
+  and the trial balance still zero afterwards.
+- What makes that work is `transaction_mode: IMMEDIATE` plus `timeout: 20`.
+  Neither is optional and neither is an optimisation.
+- These tests need `transaction=True` and the on-disk test database. An
+  in-memory SQLite does not reproduce WAL locking, and a test against one proves
+  nothing.
+
 ---
 
 ## Layout
@@ -337,6 +456,8 @@ erp/
       dashboard.py     the landing screen at / — cards, trend, panels
       pdf/             ReportLab renderers — invoices, receipts, statements
     backup/            SQLite backup/restore for the Windows box
+  docs/                USER-GUIDE, ADMIN-GUIDE, DEVELOPER + screenshots
+  scripts/             profiling helpers (dev only, never shipped)
   deploy/
     README.md          how the backups work, and how to get one back
     windows/           the release: install/update/uninstall .bat, the two
@@ -512,6 +633,10 @@ adding an aggregation over `apps.reports.ledger` or `apps.payments.recovery`.
 | Rebuild CSS | `make css` (then **commit `static/dist`**) |
 | Rebuild CSS without Docker | `make css-mac` — same Tailwind binary, run on the host |
 | Prod readiness check | `make check` |
+| Integrity audit | `python manage.py check_integrity` |
+| Year-end (dry run first) | `python manage.py close_fiscal_year 2026 --dry-run` |
+| Property tests, harder | `ERP_PROPERTY_EXAMPLES=2000 pytest tests/test_invariants_property.py` |
+| Volume profiling | `manage.py seed_volume --settings=config.settings.profile` then `python scripts/profile_pages.py` |
 | Build the Windows release | `make build-release` → `dist/erp-release-<version>.zip` |
 | Is an install fit to run? | `manage.py preflight [--service]` — on the Windows box |
 
@@ -525,3 +650,10 @@ adding an aggregation over `apps.reports.ledger` or `apps.payments.recovery`.
 6. Every new document code came from `get_next_code`, never a hand-built string.
 7. No new external URL in a template, stylesheet, or script.
 8. No new dependency that needs node, a compiler, or a system library.
+9. `manage.py check_integrity` still passes — all five checks.
+10. If posting changed, the property test ran at a raised example count and its
+    statistics show it actually posted rather than refusing everything.
+11. If a document type was added, `tests/test_lifecycle.py::TestTheContract`
+    discovered it and it answers every question the others do.
+12. No new user-visible traceback: a business refusal is a `CoreError` caught by
+    the view, anything else goes through `apps/core/errors.py`.

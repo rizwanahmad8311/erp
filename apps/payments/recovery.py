@@ -45,7 +45,7 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 from datetime import date
 
-from django.db.models import Count, Min, OuterRef, Q, Subquery, Sum, Value
+from django.db.models import Count, F, Min, OuterRef, Q, Subquery, Sum, Value
 from django.db.models.functions import Coalesce
 from django.utils import timezone
 
@@ -268,6 +268,14 @@ def _voucher_rows(
             credit=Coalesce(Sum("credit_paisa"), Value(0)),
             first_date=Min("posting_date"),
         )
+        # Drop the vouchers that net to zero **in SQL**, not afterwards in
+        # Python. These are cancelled documents and folded-back bounces: they
+        # have nothing left to chase and were being discarded a few lines below
+        # anyway, after being fetched, instantiated and iterated.
+        #
+        # Over 285,000 entries this is the difference between materialising
+        # every voucher a party has ever had and materialising the open ones.
+        .exclude(debit=F("credit"))
         .order_by("first_date", "voucher_id")
     )
 
@@ -285,10 +293,10 @@ def _voucher_rows(
     _fold_bounces(raw)
 
     return {
+        # Still filtered here as well as in SQL: `_fold_bounces` runs *after*
+        # the query and can itself net a pair to zero, which the HAVING clause
+        # upstream cannot know about.
         party_id: [row for row in by_key.values() if row.net_paisa]
-        # A voucher that nets to zero is a cancelled document, or a bounced
-        # cheque folded back onto the receipt it undid. Nothing left to chase
-        # and nothing left to apply.
         for party_id, by_key in raw.items()
     }
 

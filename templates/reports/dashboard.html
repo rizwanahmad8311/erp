@@ -26,6 +26,47 @@
 
 {% block content %}
 
+  {% comment %}
+    The nightly integrity audit, and the only thing on this screen allowed to
+    come before the day's figures.
+
+    It is drawn **only when something is wrong**. A green "books are fine"
+    banner on every login is a banner nobody reads by Wednesday, and a banner
+    nobody reads is worse than no banner at all — it trains the eye to skip the
+    place the bad news will appear.
+
+    Rust, because "the books disagree with themselves" is the same category as a
+    reversal: something has gone wrong and somebody has to look. `board.integrity`
+    is None for a login that could not act on it (see apps/reports/dashboard.py).
+  {% endcomment %}
+  {% if board.integrity and board.integrity.needs_attention %}
+    <div class="mb-4 rounded-sharp border border-alarm px-3 py-2">
+      {% if board.integrity.stale %}
+        <p class="text-sm font-semibold text-alarm">
+          {% if board.integrity.ran_at %}
+            The books have not been checked since
+            <span class="doc-date">{{ board.integrity.ran_at|date:"D d M Y, H:i" }}</span>.
+          {% else %}
+            The books have never been checked on this machine.
+          {% endif %}
+        </p>
+        <p class="mt-0.5 text-xs text-muted">
+          The check runs every night with the backup. If this keeps saying so, the
+          scheduled task has stopped — open Task Scheduler and look at
+          <span class="font-mono">ERP Nightly Integrity Check</span>.
+        </p>
+      {% else %}
+        <p class="text-sm font-semibold text-alarm">
+          The books do not balance — {{ board.integrity.summary }}.
+        </p>
+        <p class="mt-0.5 text-xs text-muted">
+          Checked {{ board.integrity.ran_at|timesince }} ago. Stop posting and call
+          whoever supports this system. Nothing has been changed automatically.
+        </p>
+      {% endif %}
+    </div>
+  {% endif %}
+
   <div class="mb-4 flex flex-wrap items-baseline justify-between gap-2">
     <div>
       <h1 class="text-xl font-semibold">Today</h1>

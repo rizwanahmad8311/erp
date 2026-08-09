@@ -13,7 +13,7 @@ from unfold.admin import ModelAdmin
 
 from apps.core.money import fmt
 
-from .models import Account, LedgerEntry, StockEntry, Warehouse
+from .models import Account, FiscalYearClose, LedgerEntry, StockEntry, Warehouse
 
 
 @admin.register(Account)
@@ -148,6 +148,45 @@ class StockEntryAdmin(ModelAdmin):
         return False
 
     def has_change_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+
+@admin.register(FiscalYearClose)
+class FiscalYearCloseAdmin(ModelAdmin):
+    """Read-mostly. The close is posted by `manage.py close_fiscal_year`.
+
+    Adding one here would let somebody create a header with no ledger entries
+    behind it, which is exactly the state ``check_integrity`` exists to find.
+    Cancelling goes through the shared cancel screen like every other document.
+    """
+
+    list_display = ("code", "fiscal_year", "posting_date", "status", "profit_display")
+    list_filter = ("status", "fiscal_year")
+    search_fields = ("code",)
+    ordering = ("-fiscal_year",)
+    readonly_fields = (
+        "code",
+        "fiscal_year",
+        "posting_date",
+        "profit_paisa",
+        "status",
+        "posted_at",
+        "posted_by",
+        "cancelled_at",
+        "cancelled_by",
+        "cancel_reason",
+    )
+
+    @admin.display(description="Profit", ordering="profit_paisa")
+    def profit_display(self, obj) -> str:
+        from apps.core.money import fmt
+
+        return fmt(obj.profit_paisa)
+
+    def has_add_permission(self, request):
         return False
 
     def has_delete_permission(self, request, obj=None):

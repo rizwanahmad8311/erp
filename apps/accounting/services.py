@@ -48,6 +48,7 @@ from django.db import transaction
 from django.db.models import Sum
 
 from apps.accounts.permissions import OVERRIDE_NEGATIVE_STOCK
+from apps.core.enums import DocumentStatus
 from apps.core.money import Money, fmt
 from apps.masters.models import Item
 
@@ -1077,3 +1078,93 @@ __all__ = [
     "stock_balance",
     "valuation_rate",
 ]
+
+
+# ===========================================================================
+# Year end
+# ===========================================================================
+@transaction.atomic
+def create_fiscal_year_close(*, fiscal_year: int, user=None):
+    """A DRAFT close for a year, with the plan already costed onto the header.
+
+    Refuses a year that already has a live close. Closing twice would post the
+    year's profit to Retained Earnings twice, and the second one balances
+    perfectly — which is what makes it so hard to notice.
+    """
+    from apps.accounting.models import FiscalYearClose
+    from apps.accounting.yearend import build_plan, period_for
+    from apps.core.services import get_next_code
+
+    existing = FiscalYearClose.objects.live().filter(fiscal_year=fiscal_year).first()
+    if existing is not None:
+        raise AlreadyPosted(
+            f"{fiscal_year} has already been closed by {existing.code} "
+            f"({existing.status}). Cancel it before closing the year again."
+        )
+
+    plan = build_plan(fiscal_year)
+    _period_from, period_to = period_for(fiscal_year)
+
+    return FiscalYearClose.objects.create(
+        code=get_next_code(FiscalYearClose.CODE_PREFIX, fiscal_year),
+        fiscal_year=fiscal_year,
+        posting_date=period_to,
+        profit_paisa=plan.profit_paisa,
+        created_by=user,
+        updated_by=user,
+    )
+
+
+@transaction.atomic
+def post_fiscal_year_close(close, *, user=None):
+    """Bring every income and expense account to zero, profit to Retained Earnings.
+
+    The plan is rebuilt here rather than carried from the draft, deliberately.
+    A draft created on the 2nd and posted on the 5th must close what the ledger
+    says on the 5th; using the figure computed on the 2nd would silently omit
+    anything posted in between, and a year-end that quietly loses three days of
+    January is the worst kind of wrong — it balances.
+    """
+    from apps.accounting.yearend import build_plan, gl_lines_for
+
+    close.assert_transition(DocumentStatus.POSTED)
+
+    plan = build_plan(close.fiscal_year)
+    if plan.is_empty:
+        raise InvalidPosting(
+            f"There is nothing to close for {close.fiscal_year}: no income or expense "
+            f"account has a balance in that year."
+        )
+
+    gl_lines = gl_lines_for(plan)
+    post_entries(close, gl_lines, close.posting_date, user=user)
+
+    close.profit_paisa = plan.profit_paisa
+    close.mark_posted(user=user)
+    close.save()
+    return close
+
+
+@transaction.atomic
+def cancel_fiscal_year_close(close, *, user=None, reason: str = ""):
+    """Reverse the closing entries, reopening the year.
+
+    A mirror of every row, like any other cancellation (CLAUDE.md §3) — the
+    original rows stay exactly where they are.
+    """
+    close.assert_cancellable()
+    close.assert_transition(DocumentStatus.CANCELLED)
+
+    reverse_entries(
+        close, posting_date=close.posting_date, user=user, remarks=f"Reopening {close.fiscal_year}"
+    )
+
+    close.mark_cancelled(user=user, reason=reason)
+    close.save()
+    return close
+
+
+@transaction.atomic
+def amend_fiscal_year_close(close, *, user=None):
+    """Clone a cancelled close into a fresh DRAFT for the same year."""
+    return close.build_amendment(user=user)

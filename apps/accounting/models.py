@@ -30,7 +30,8 @@ from simple_history.models import HistoricalRecords
 
 from apps.core.exceptions import AppendOnlyViolation
 from apps.core.fields import MoneyField, QuantityField
-from apps.core.models import AppendOnlyModel, TimeStampedModel
+from apps.core.models import AppendOnlyModel, DocumentModel, TimeStampedModel
+from apps.core.reporting import DocumentQuerySet
 
 from .enums import AccountType, PartyType, account_sign
 from .exceptions import (
@@ -354,6 +355,28 @@ class LedgerEntry(AppendOnlyModel):
             models.Index(fields=["account", "posting_date"], name="ledger_account_date_idx"),
             # Party ledgers, ageing and recovery.
             models.Index(fields=["party_type", "party_id"], name="ledger_party_idx"),
+            # The recovery workspace and the ageing ladder group every party's
+            # ledger by voucher. Ordered to match that GROUP BY exactly and
+            # carrying the summed columns, so SQLite answers from the index
+            # alone: "USE TEMP B-TREE FOR GROUP BY" becomes "USING COVERING
+            # INDEX", which measured 178ms -> 94ms over 200,000 entries.
+            #
+            # Wide, and deliberately so. This is the one query in the system
+            # that touches every row a party has ever had, and it is on the
+            # screen the recovery clerk lives in.
+            models.Index(
+                fields=[
+                    "party_type",
+                    "party_id",
+                    "voucher_type",
+                    "voucher_id",
+                    "voucher_code",
+                    "posting_date",
+                    "debit_paisa",
+                    "credit_paisa",
+                ],
+                name="ledger_party_voucher_idx",
+            ),
             # Finding a voucher's rows, which is what reversal does.
             models.Index(fields=["voucher_type", "voucher_id"], name="ledger_voucher_idx"),
         ]
@@ -859,3 +882,153 @@ class StockEntry(AppendOnlyModel):
     def is_inward(self) -> bool:
         """True for a receipt, False for an issue. Reads the sign, nothing else."""
         return self.qty_base > 0
+
+
+class IntegrityRun(TimeStampedModel):
+    """The result of one ``manage.py check_integrity``.
+
+    Stored so the dashboard can show "the books were checked at 21:05 and
+    balanced" without re-running five aggregates over the whole ledger on the
+    screen every login lands on.
+
+    Not append-only and deliberately not: this is a log of an *observation*, not
+    a financial record. It writes nothing to the ledger and reading it wrong
+    costs nobody money. Old rows can be pruned.
+    """
+
+    ok = models.BooleanField(db_index=True)
+    checks_run = models.PositiveSmallIntegerField(default=0)
+    checks_failed = models.PositiveSmallIntegerField(default=0)
+    duration_ms = models.IntegerField(default=0)
+    report = models.TextField(
+        blank=True,
+        default="",
+        help_text="The full text of what the run printed, so the dashboard can link to it.",
+    )
+
+    class Meta:
+        verbose_name = "integrity run"
+        verbose_name_plural = "integrity runs"
+        ordering = ["-created_at"]
+        indexes = [models.Index(fields=["-created_at"], name="integrityrun_recent_idx")]
+
+    def __str__(self) -> str:
+        return f"{'PASS' if self.ok else 'FAIL'} at {self.created_at:%Y-%m-%d %H:%M}"
+
+
+class FiscalYearCloseQuerySet(DocumentQuerySet):
+    """Nothing extra yet; here so `objects.live()` is the shared implementation."""
+
+
+class FiscalYearClose(DocumentModel):
+    """The year-end closing entry, as a document like everything else.
+
+    It writes to the ledger, so CLAUDE.md §5 says it is a ``DocumentModel``: it
+    has a code, a status, a posted-by, and it can be cancelled into reversing
+    entries. A closing entry that could not be reversed would be the one posting
+    in this system with no way back — and year-end is exactly when somebody
+    discovers a bill was missed.
+
+    The arithmetic lives in :mod:`apps.accounting.yearend`; this is the header.
+    """
+
+    CODE_PREFIX = "YC"
+
+    fiscal_year = models.PositiveIntegerField(
+        db_index=True,
+        help_text="The year being closed.",
+    )
+    posting_date = models.DateField(
+        help_text="The last day of the year being closed. Every entry lands on it.",
+    )
+    profit_paisa = MoneyField(
+        help_text=(
+            "The figure carried to Retained Earnings. A display convenience only "
+            "(CLAUDE.md §6) - every report re-aggregates the ledger."
+        ),
+    )
+
+    objects = FiscalYearCloseQuerySet.as_manager()
+
+    class Meta:
+        verbose_name = "fiscal year close"
+        verbose_name_plural = "fiscal year closes"
+        ordering = ["-fiscal_year"]
+        constraints = [
+            # One **live** close per year, not one row per year. A plain
+            # `unique=True` looked right and was wrong: a cancelled close would
+            # keep occupying the slot forever, so a year reopened to take a late
+            # December bill could never be closed again — which defeats the
+            # entire reason the close is a cancellable document.
+            models.UniqueConstraint(
+                fields=["fiscal_year"],
+                condition=~models.Q(status="CANCELLED"),
+                name="one_live_close_per_fiscal_year",
+            )
+        ]
+        permissions = [
+            ("post_fiscalyearclose", "Can close a fiscal year"),
+            ("cancel_fiscalyearclose", "Can reverse a fiscal year close"),
+            ("amend_fiscalyearclose", "Can amend a cancelled fiscal year close"),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.code} - closing {self.fiscal_year}"
+
+    # -- the lifecycle contract ----------------------------------------
+    def post(self, *, user=None, **options):
+        from apps.accounting.services import post_fiscal_year_close
+
+        return post_fiscal_year_close(self, user=user, **options)
+
+    def cancel(self, *, user=None, reason: str = ""):
+        from apps.accounting.services import cancel_fiscal_year_close
+
+        return cancel_fiscal_year_close(self, user=user, reason=reason)
+
+    def amend(self, *, user=None):
+        from apps.accounting.services import amend_fiscal_year_close
+
+        return amend_fiscal_year_close(self, user=user)
+
+    def get_absolute_url(self) -> str:
+        """The admin change page.
+
+        Unlike an invoice, a year-end close has no screen of its own and should
+        not: it is posted once a year by whoever holds ``post_fiscalyearclose``,
+        from a command, and the only people who ever look at it again are
+        looking at it in the admin beside the ledger.
+        """
+        from django.urls import reverse
+
+        return reverse("admin:accounting_fiscalyearclose_change", args=[self.pk])
+
+    def dependents(self):
+        """A later year's close depends on this one.
+
+        Reversing 2026 while 2027 is closed would leave 2027's opening figure
+        computed from a profit that is no longer in the ledger.
+
+        Must never raise, including on an unsaved instance — the shared cancel
+        screen calls it before it knows anything about the document, and
+        ``tests/test_lifecycle.py::TestTheContract`` holds every document to
+        that. An unsaved close has no year to compare against yet.
+        """
+        from apps.core.lifecycle import Dependent
+
+        if self.fiscal_year is None:
+            return []
+
+        later = (
+            type(self)
+            .objects.live()
+            .filter(fiscal_year__gt=self.fiscal_year)
+            .order_by("fiscal_year")
+        )
+        return [
+            Dependent(
+                label=f"{close.code} closes {close.fiscal_year}",
+                detail="Reverse the later year first.",
+            )
+            for close in later
+        ]

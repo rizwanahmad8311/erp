@@ -1,0 +1,58 @@
+{% comment %}
+  The unexpected failure. Deliberately NOT extending base.html: whatever broke
+  may be the navigation, the context processors or the database itself, and an
+  error page that needs any of those is an error page that shows a second error.
+  Everything here is inline and self-contained.
+{% endcomment %}
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Something went wrong</title>
+    <style>
+      :root { --paper:#fbfbf9; --ink:#1a1d21; --muted:#6e7178; --rule:#dddcd6; --alarm:#a3341f; }
+      body { background:var(--paper); color:var(--ink); margin:0;
+             font-family:ui-sans-serif, system-ui, sans-serif; line-height:1.5; }
+      main { max-width:34rem; margin:4rem auto; padding:0 1.5rem; }
+      h1 { font-size:1.25rem; margin:0 0 .5rem; letter-spacing:-.011em; }
+      p { margin:.75rem 0; }
+      .muted { color:var(--muted); font-size:.875rem; }
+      .ref { font-family:ui-monospace,"SFMono-Regular",Consolas,monospace;
+             font-size:1.25rem; letter-spacing:.08em; border:1px solid var(--rule);
+             border-radius:3px; padding:.5rem .75rem; display:inline-block;
+             background:#fff; }
+      ol { padding-left:1.25rem; }
+      li { margin:.35rem 0; }
+      a { color:#0b5d51; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Something went wrong</h1>
+
+      <p>
+        This is a fault in the program, not something you did.
+        <strong>Nothing was saved</strong> — whatever you were posting did not go
+        through, so no entry has been written to the accounts.
+      </p>
+
+      {% if reference %}
+        <p class="muted">Quote this when you report it:</p>
+        <p><span class="ref">{{ reference }}</span></p>
+      {% endif %}
+
+      <p class="muted">What to do:</p>
+      <ol class="muted">
+        <li>Go back and try once more — if it was a one-off, it will work.</li>
+        <li>If it happens again, <strong>stop and do not re-enter the document</strong>,
+            in case part of it did save.</li>
+        <li>Tell whoever supports this system{% if reference %}, and read them the
+            reference above{% endif %}. The details are in
+            <code>logs\erp.log</code>.</li>
+      </ol>
+
+      <p><a href="/">Back to the dashboard</a></p>
+    </main>
+  </body>
+</html>

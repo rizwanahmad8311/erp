@@ -89,7 +89,7 @@ from . import ledger
 
 #: Bump when the shape of anything cached below changes. See the module
 #: docstring.
-CACHE_VERSION = 1
+CACHE_VERSION = 2
 
 #: How many days the sales trend covers, today included.
 TREND_DAYS = 30
@@ -350,6 +350,30 @@ class RecentDocument:
 
 
 @dataclass(frozen=True, slots=True)
+class IntegrityStatus:
+    """What the nightly ``check_integrity`` found, for the banner.
+
+    Plain data, like everything else on this screen: it is pickled into the
+    cache, and the row it came from must not be reachable from the template.
+
+    ``stale`` is its own state and is not the same as ``failed``. A check that
+    has not run for three days is not a check that passed — and on a machine
+    where the scheduled task has quietly stopped firing, "no news" is exactly
+    the wrong thing to read as good news.
+    """
+
+    ok: bool
+    stale: bool
+    ran_at: dt.datetime | None
+    checks_failed: int
+    summary: str
+
+    @property
+    def needs_attention(self) -> bool:
+        return self.stale or not self.ok
+
+
+@dataclass(frozen=True, slots=True)
 class Dashboard:
     """Everything the screen renders. Plain data — no querysets, no models.
 
@@ -369,6 +393,9 @@ class Dashboard:
     shows_stock: bool
     is_scoped: bool
     route_count: int
+    #: None for a login that may not see it — the same masking-where-the-data-is
+    #: -chosen rule the money figures follow.
+    integrity: IntegrityStatus | None
 
     @property
     def has_cards(self) -> bool:
@@ -435,6 +462,50 @@ def build(user, *, day: dt.date | None = None) -> Dashboard:
         shows_stock=audience.sees_stock,
         is_scoped=audience.is_scoped,
         route_count=len(audience.route_ids or ()),
+        # Only for somebody who could act on it. An operator cannot restore a
+        # backup or read a ledger, so a red banner about the trial balance is
+        # alarming and useless in equal measure.
+        integrity=_integrity() if audience.sees_money else None,
+    )
+
+
+#: How long a passing check stays believable. The audit runs nightly, so two
+#: days means it has missed at least one run — the same reasoning and the same
+#: number as the backup's staleness window.
+INTEGRITY_STALE_HOURS = 48
+
+
+def _integrity() -> IntegrityStatus | None:
+    """The last recorded ``check_integrity`` run.
+
+    Reads the stored row rather than re-running the checks. The checks are five
+    aggregates over the whole ledger, and this is the screen every login lands
+    on and comes back to between bills — running them here would put a full
+    table scan on the hot path to save a nightly job.
+    """
+    from apps.accounting.models import IntegrityRun
+
+    last = IntegrityRun.objects.order_by("-created_at").first()
+    if last is None:
+        return IntegrityStatus(
+            ok=False,
+            stale=True,
+            ran_at=None,
+            checks_failed=0,
+            summary="The books have never been checked on this machine.",
+        )
+
+    age_hours = (timezone.now() - last.created_at).total_seconds() / 3600
+    return IntegrityStatus(
+        ok=last.ok,
+        stale=age_hours > INTEGRITY_STALE_HOURS,
+        ran_at=last.created_at,
+        checks_failed=last.checks_failed,
+        summary=(
+            f"{last.checks_failed} of {last.checks_run} checks failed"
+            if not last.ok
+            else f"all {last.checks_run} checks passed"
+        ),
     )
 
 

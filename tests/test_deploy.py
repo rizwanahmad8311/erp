@@ -373,3 +373,73 @@ class TestPreflight:
 
         assert _subnet_of("192.168.1.50") == "192.168.1.0/24"
         assert _subnet_of("garbage") == "192.168.1.0/24"
+
+
+class TestTheReleaseLeavesOutWhatMustNotShip:
+    """Some code is safe on a laptop and dangerous on somebody's books.
+
+    ``seed_volume`` writes tens of thousands of fabricated rows straight into
+    the ledger with the base manager, stepping around the append-only guard on
+    purpose because it is a profiling fixture (CLAUDE.md §3). Those rows cannot
+    be deleted afterwards — that is what append-only means.
+
+    It carries its own allow-list guard as well. This is the second lock: on the
+    office PC the command should not exist at all.
+    """
+
+    #: Path in the repo -> why it must not reach the Windows machine.
+    MUST_NOT_SHIP = {
+        "apps/core/management/commands/seed_volume.py": (
+            "bulk-writes fake rows into the append-only ledger"
+        ),
+        "config/settings/profile.py": "points the database at a scratch file",
+        "config/settings/test.py": "installs the pytest-only test app",
+    }
+
+    def test_the_makefile_deletes_each_of_them(self):
+        """Asserted against the Makefile rather than a built zip.
+
+        Building a release downloads a Python installer and every wheel, which
+        is not something a unit test should do. What can be checked cheaply is
+        that the recipe names each file — and if somebody adds a dangerous
+        command later, the entry above is what reminds them.
+        """
+        from pathlib import Path
+
+        from django.conf import settings
+
+        makefile = (Path(settings.BASE_DIR) / "Makefile").read_text(encoding="utf-8")
+        stage = makefile.split("removing what must not ship", 1)
+        assert len(stage) == 2, "the release recipe no longer has a removal step"
+
+        for path, why in self.MUST_NOT_SHIP.items():
+            assert path in stage[1], (
+                f"{path} would ship to the office PC, and it {why}. "
+                f"Add an `rm -f` for it to the release recipe."
+            )
+
+    def test_each_of_them_actually_exists_to_be_removed(self):
+        """A stale entry above is a rule that silently stops protecting anything."""
+        from pathlib import Path
+
+        from django.conf import settings
+
+        for path in self.MUST_NOT_SHIP:
+            assert (Path(settings.BASE_DIR) / path).exists(), (
+                f"{path} is listed as must-not-ship but no longer exists — "
+                f"remove the entry so the list stays meaningful."
+            )
+
+    def test_seed_volume_refuses_outside_the_profile_settings(self):
+        """The second lock, checked directly."""
+        from io import StringIO
+
+        from django.core.management import call_command
+        from django.core.management.base import CommandError
+
+        with pytest.raises(CommandError) as caught:
+            call_command("seed_volume", "--invoices", "1", stdout=StringIO())
+
+        message = str(caught.value)
+        assert "Refusing to run" in message
+        assert "config.settings.profile" in message, "the refusal must name the way to run it"

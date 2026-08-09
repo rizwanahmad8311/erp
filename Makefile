@@ -236,6 +236,14 @@ build-release: css release-python release-vendor release-wheels  ## Build dist/e
 	find "$(RELEASE_STAGE)/$$NAME" -name '*.py[co]' -delete; \
 	find "$(RELEASE_STAGE)/$$NAME" -name '.DS_Store' -delete; \
 	rm -rf "$(RELEASE_STAGE)/$$NAME/static/src"; \
+	@# Development-only, and dangerous on a real installation: seed_volume
+	@# bulk-writes fake rows straight into the append-only ledger (CLAUDE.md
+	@# §3), stepping around the guard on purpose because it is a profiling
+	@# fixture. It has no business being one typo away from somebody's books,
+	@# so it does not ship. config/settings/profile.py goes with it.
+	rm -f "$(RELEASE_STAGE)/$$NAME/apps/core/management/commands/seed_volume.py"; \
+	rm -f "$(RELEASE_STAGE)/$$NAME/config/settings/profile.py"; \
+	rm -f "$(RELEASE_STAGE)/$$NAME/config/settings/test.py"; \
 	\
 	printf '%s\n' "$$VERSION" > "$(RELEASE_STAGE)/$$NAME/deploy/windows/VERSION.txt"; \
 	printf 'Built %s from %s\n' "$$(date '+%Y-%m-%d %H:%M')" "$$(git rev-parse --short HEAD 2>/dev/null || echo 'no git')" \

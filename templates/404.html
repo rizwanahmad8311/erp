@@ -1,0 +1,32 @@
+{% comment %} Self-contained, for the same reason as 500.html. {% endcomment %}
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Not found</title>
+    <style>
+      :root { --paper:#fbfbf9; --ink:#1a1d21; --muted:#6e7178; }
+      body { background:var(--paper); color:var(--ink); margin:0;
+             font-family:ui-sans-serif, system-ui, sans-serif; line-height:1.5; }
+      main { max-width:34rem; margin:4rem auto; padding:0 1.5rem; }
+      h1 { font-size:1.25rem; margin:0 0 .5rem; letter-spacing:-.011em; }
+      .muted { color:var(--muted); font-size:.875rem; }
+      a { color:#0b5d51; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>That page is not here</h1>
+      <p class="muted">
+        The usual reasons: the document was a draft and has since been deleted, the
+        address was typed by hand, or it is a bookmark from an older version.
+      </p>
+      <p class="muted">
+        If it is a document you are certain exists, search for its code from the
+        list screen rather than using a saved link.
+      </p>
+      <p><a href="/">Back to the dashboard</a></p>
+    </main>
+  </body>
+</html>

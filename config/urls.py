@@ -39,3 +39,20 @@ urlpatterns = [
 urlpatterns += [
     re_path(r"^media/(?P<path>.*)$", serve, {"document_root": settings.MEDIA_ROOT}),
 ]
+
+
+# ---------------------------------------------------------------------------
+# Error pages
+# ---------------------------------------------------------------------------
+# Django's defaults render a bare "Server Error (500)", which on a machine with
+# no developer at it is indistinguishable from the network being down. These
+# say what happened, whether anything was saved, and what to do next — and the
+# 500 carries a short reference that is also written next to the traceback in
+# logs/erp.log, so a phone call can be turned into a log search.
+#
+# See apps/core/errors.py. Only used when DEBUG is False; in development
+# Django's own debug page is far more useful.
+handler400 = "apps.core.errors.bad_request"
+handler403 = "apps.core.errors.permission_denied"
+handler404 = "apps.core.errors.not_found"
+handler500 = "apps.core.errors.server_error"
