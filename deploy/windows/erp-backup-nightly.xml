@@ -6,19 +6,23 @@
   (XML comments may not contain two hyphens in a row, which is why the flags are
   not written out here. Do not paste them in.)
 
-  To import it, once, on the office machine:
+  Step 9 of INSTALL-WINDOWS.md walks through this with screenshots. In short,
+  once, on the office machine:
 
-    1. Edit the three paths marked EDIT-ME below to match where the ERP is
-       installed. They are absolute on purpose: Task Scheduler runs with no
-       useful working directory and no PATH from your login.
+    1. The three paths marked EDIT-ME below assume the ERP is at C:\erp, which
+       is what INSTALL-WINDOWS.md tells the installer to use. If it went
+       somewhere else, edit all three. They are absolute on purpose: Task
+       Scheduler runs with no useful working directory and no PATH from your
+       login.
     2. Open Task Scheduler (press Start, type "Task Scheduler").
     3. Action -> Import Task... -> pick this file.
     4. On the General tab, tick "Run whether user is logged on or not" and
-       enter the password for the account when it asks.
+       "Run with highest privileges", then enter the password for the account
+       when it asks.
 
   Or from an Administrator command prompt:
 
-    schtasks /Create /XML "C:\erp\deploy\erp-backup-nightly.xml" /TN "ERP Nightly Backup"
+    schtasks /Create /XML "C:\erp\deploy\windows\erp-backup-nightly.xml" /TN "ERP Nightly Backup"
 
   Why 21:00: the counter is shut, the day's postings are in, and the machine is
   still switched on. A backup at 02:00 is a backup that never runs, because the

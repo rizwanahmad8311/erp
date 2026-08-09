@@ -254,6 +254,20 @@ python manage.py collectstatic --noinput
 python serve.py
 ```
 
+In practice nobody types that: `make build-release` on the Mac produces
+`dist/erp-release-<version>.zip`, and `deploy\windows\install.bat` on the office
+PC runs those six steps plus the service, the firewall and the checks. The zip
+carries **everything** the far end needs — the Python installer, every
+dependency as a `cp312/win_amd64` wheel, `nssm.exe`, `rclone.exe` — because the
+far end has no internet. `deploy/windows/INSTALL-WINDOWS.md` is the numbered
+procedure, `TROUBLESHOOTING.md` is what happens when it goes wrong, and
+`manage.py preflight` is the check that says whether an installation is fit to
+run.
+
+**Never add a dependency without re-running `make build-release`.** The wheels
+are downloaded with `--only-binary=:all:`, so a package with no Windows wheel
+fails the build here rather than on site.
+
 Therefore:
 
 - **No node, no npm, no Docker, no system libraries, no compiler.**
@@ -323,6 +337,10 @@ erp/
       dashboard.py     the landing screen at / — cards, trend, panels
       pdf/             ReportLab renderers — invoices, receipts, statements
     backup/            SQLite backup/restore for the Windows box
+  deploy/
+    README.md          how the backups work, and how to get one back
+    windows/           the release: install/update/uninstall .bat, the two
+                       guides, the task XML — everything the office PC gets
   static/src/          authored + vendored sources (Tailwind input, JS, fonts)
   static/dist/         compiled output — COMMITTED
   templates/
@@ -494,6 +512,8 @@ adding an aggregation over `apps.reports.ledger` or `apps.payments.recovery`.
 | Rebuild CSS | `make css` (then **commit `static/dist`**) |
 | Rebuild CSS without Docker | `make css-mac` — same Tailwind binary, run on the host |
 | Prod readiness check | `make check` |
+| Build the Windows release | `make build-release` → `dist/erp-release-<version>.zip` |
+| Is an install fit to run? | `manage.py preflight [--service]` — on the Windows box |
 
 ## Before you finish any task
 

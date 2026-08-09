@@ -122,10 +122,20 @@ WSGI_APPLICATION = "config.wsgi.application"
 # SQLite in WAL mode. transaction_mode=IMMEDIATE takes the write lock at BEGIN
 # instead of at first write, which removes the SQLITE_BUSY deadlock window
 # between concurrent posting transactions.
+DATA_DIR = BASE_DIR / "data"
+
+# Created here rather than assumed. `data/` is git-ignored and is deliberately
+# not in the Windows release zip — it is somebody's accounts, not part of the
+# software — so on a fresh install the folder does not exist and SQLite cannot
+# make it. It does not create parent directories; it fails with
+# "unable to open database file", which is a true statement and a useless one
+# to hand somebody at 9am on their first morning.
+DATA_DIR.mkdir(parents=True, exist_ok=True)
+
 DATABASES = {
     "default": {
         "ENGINE": "django.db.backends.sqlite3",
-        "NAME": BASE_DIR / "data" / "erp.sqlite3",
+        "NAME": DATA_DIR / "erp.sqlite3",
         "OPTIONS": {
             "transaction_mode": "IMMEDIATE",
             "timeout": 20,

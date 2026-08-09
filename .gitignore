@@ -41,6 +41,15 @@ bin/tailwindcss
 bin/tailwindcss.exe
 bin/tailwindcss-macos-arm64
 
+# --- the Windows release --------------------------------------------------
+# Third-party binaries and downloaded wheels. `make build-release` fetches all
+# of these on the Mac; none of them is ours and none belongs in git. Between
+# them they are ~60 MB.
+deploy/windows/vendor/
+deploy/windows/wheels/
+deploy/windows/python/
+deploy/windows/VERSION.txt
+
 # --- editors / os --------------------------------------------------------
 .DS_Store
 .idea/

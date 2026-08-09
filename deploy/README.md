@@ -1,5 +1,9 @@
 # Backups — how they work and how to get one back
 
+> Installing on the Windows PC in the first place is `windows/INSTALL-WINDOWS.md`.
+> When something is wrong, `windows/TROUBLESHOOTING.md`. This file is about the
+> backups specifically.
+
 Everything the business has is in two places: the database file and the uploaded
 logo. A backup is one zip holding both, plus a `manifest.json` recording when it
 was taken, which build took it, the row counts and a checksum.
@@ -22,8 +26,9 @@ Task Scheduler runs `manage.py backup --push`, which:
 5. Deletes old backups beyond the retention policy: 14 daily, 8 weekly,
    12 monthly.
 
-To set the schedule up, see `erp-backup-nightly.xml` in this folder — the
-instructions are in the comment at the top of the file.
+To set the schedule up, see `windows/erp-backup-nightly.xml` — the instructions
+are in the comment at the top of the file, and step 9 of
+`windows/INSTALL-WINDOWS.md` walks through it.
 
 **Last Run Result in Task Scheduler:**
 
