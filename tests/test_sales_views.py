@@ -493,9 +493,20 @@ class TestPostingStrip:
 
     def test_it_is_pinned_to_the_bottom(self, staff_client, with_line):
         """On the screen somebody uses all day, the total must never be
-        somewhere you have to scroll to find."""
+        somewhere you have to scroll to find.
+
+        Two halves, because the markup and the rule that pins it are now in
+        different files: the strip must carry `.posting-strip`, and
+        `.posting-strip` must actually be sticky. Asserting only the class name
+        would keep passing if somebody deleted the rule.
+        """
         body = staff_client.get(url("detail", with_line)).content.decode()
-        assert "sticky bottom-0" in body
+        assert "posting-strip" in body
+
+        css = (Path(settings.BASE_DIR) / "static" / "src" / "css" / "app.css").read_text()
+        block = css.split(".posting-strip {", 1)[1].split("}", 1)[0]
+        assert "position: sticky" in block
+        assert "bottom: 0" in block
 
     def test_it_previews_the_general_ledger(self, staff_client, with_line):
         body = staff_client.get(url("detail", with_line)).content.decode()

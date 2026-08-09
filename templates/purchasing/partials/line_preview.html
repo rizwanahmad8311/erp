@@ -6,11 +6,11 @@
    the one place nobody thinks to look. Nothing here is saved. {% endcomment %}
 
 {% if error %}
-  <span class="text-cancelled">{{ error }}</span>
+  <span class="text-alarm">{{ error }}</span>
 {% elif preview %}
-  <span class="text-gray-500">=</span>
+  <span class="text-muted">=</span>
   <span class="amount font-medium">{{ preview.amounts.amount_paisa|money }}</span>
-  <span class="text-gray-500">
+  <span class="text-muted">
     for {{ preview.qty_display }}
     &middot; {{ preview.amounts.rate_paisa|money }} per base unit
     {% if preview.amounts.tax_paisa %}
@@ -22,7 +22,7 @@
     &middot; line total {{ preview.amounts.total_paisa|money }}
   </span>
   {% if not preview.amounts.rate_is_exact %}
-    <span class="ml-1 text-amber-600"
+    <span class="ml-1 text-muted"
           title="The per-base-unit rate is rounded. The line amount above is what was billed and what will post.">
       * rate rounded &mdash; the amount above is what posts
     </span>

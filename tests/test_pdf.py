@@ -763,7 +763,9 @@ class TestTheBrowserPrintPath:
 
         assert "no-print" in body
         # The posting strip carries the Post button and the ledger preview.
-        assert 'class="no-print sticky' in body
+        # `.posting-strip` is the component in static/src/css/app.css; the
+        # pinning lives there rather than in utility classes.
+        assert 'class="posting-strip no-print' in body
 
     def test_both_routes_to_paper_are_offered(self, staff_client, invoice, profile):
         url = reverse("sales:detail", kwargs={"slug": "invoices", "pk": invoice.pk})
@@ -922,10 +924,21 @@ class TestHeaderGeometry:
 
 class TestTheme:
     def test_the_alarm_colour_matches_the_screen(self):
-        """--color-cancelled in static/src/css/app.css, converted to sRGB."""
+        """--color-alarm in static/src/css/app.css.
+
+        Rust, and reserved: cancelled documents and reversing entries, on paper
+        and on screen. If this drifts from the CSS token, a reversal stops being
+        findable by scanning a printed ledger.
+        """
         from apps.reports.pdf.theme import ALARM
 
-        assert ALARM.hexval() == "0xbd413f"
+        assert ALARM.hexval() == "0xa3341f"
+
+    def test_the_signal_colour_matches_the_screen(self):
+        """--color-signal in static/src/css/app.css."""
+        from apps.reports.pdf.theme import SIGNAL
+
+        assert SIGNAL.hexval() == "0x0b5d51"
 
     def test_every_receipt_layout_can_actually_be_rendered(self, receipt, profile):
         from apps.reports.pdf.theme import RECEIPT_LAYOUTS

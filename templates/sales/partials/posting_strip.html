@@ -11,29 +11,38 @@
   eventually disagree with what actually lands in the ledger.
 {% endcomment %}
 
-<div class="no-print sticky bottom-0 z-20 -mx-4 mt-6 border-t-2 border-gray-800 bg-white px-4 pb-3 pt-2 shadow-[0_-2px_6px_rgba(0,0,0,0.06)]">
+{% comment %}
+  A single hairline separates it from the rows scrolling underneath — no
+  shadow. The strip is already the only thing pinned to the bottom of the
+  viewport; it does not need to be lifted off the page as well.
+
+  On a tablet the strip collapses to the totals alone. The GL preview is three
+  columns of figures that become unreadable under about 768px, and half-legible
+  accounting is worse than none — the full preview is one rotation away.
+{% endcomment %}
+<div class="posting-strip no-print -mx-4 mt-6 px-4 pb-3 pt-2">
   <div class="grid gap-4 md:grid-cols-3">
 
     {# ----------------------------------------------------------- the totals #}
     <div>
-      <h2 class="mb-1 text-xs font-semibold uppercase tracking-wide text-gray-600">Totals</h2>
+      <h2 class="mb-1 text-xs font-semibold uppercase tracking-wide text-muted">Totals</h2>
       <table class="w-full text-sm">
         <tbody>
           <tr>
-            <td class="py-0.5 text-gray-600">Subtotal</td>
+            <td class="py-0.5 text-muted">Subtotal</td>
             <td class="amount py-0.5">{{ document.subtotal_paisa|money }}</td>
           </tr>
           {% if document.discount_paisa %}
             <tr>
-              <td class="py-0.5 text-gray-600">Discount</td>
+              <td class="py-0.5 text-muted">Discount</td>
               <td class="amount py-0.5">-{{ document.discount_paisa|money }}</td>
             </tr>
           {% endif %}
           <tr>
-            <td class="py-0.5 text-gray-600">Tax</td>
+            <td class="py-0.5 text-muted">Tax</td>
             <td class="amount py-0.5">{{ document.tax_paisa|money }}</td>
           </tr>
-          <tr class="border-t border-gray-800">
+          <tr class="border-t border-ink">
             <td class="py-1 font-semibold">Total</td>
             <td class="amount py-1 text-base font-semibold">{{ document.total_paisa|money }}</td>
           </tr>
@@ -46,15 +55,15 @@
           {% endcomment %}
           {% if cogs_paisa and perms.masters.view_cost_price %}
             <tr>
-              <td class="py-0.5 text-xs text-gray-500">
+              <td class="py-0.5 text-xs text-muted">
                 {% if document.status == "DRAFT" %}Cost (estimated){% else %}Cost{% endif %}
               </td>
-              <td class="amount py-0.5 text-xs text-gray-500">{{ cogs_paisa|money }}</td>
+              <td class="amount py-0.5 text-xs text-muted">{{ cogs_paisa|money }}</td>
             </tr>
           {% endif %}
           {% if document.status == "POSTED" and not is_return %}
             <tr>
-              <td class="py-0.5 text-gray-600">Outstanding</td>
+              <td class="py-0.5 text-muted">Outstanding</td>
               <td class="amount py-0.5 font-medium">{{ document.outstanding_paisa|money }}</td>
             </tr>
           {% endif %}
@@ -63,34 +72,34 @@
     </div>
 
     {# ---------------------------------------------------- the credit position #}
-    <div>
+    <div class="hidden md:block">
       {% if credit %}
-        <h2 class="mb-1 text-xs font-semibold uppercase tracking-wide text-gray-600">
+        <h2 class="mb-1 text-xs font-semibold uppercase tracking-wide text-muted">
           Credit — {{ credit.client.name }}
         </h2>
         <table class="w-full text-sm">
           <tbody>
             <tr>
-              <td class="py-0.5 text-gray-600">Limit</td>
+              <td class="py-0.5 text-muted">Limit</td>
               <td class="amount py-0.5">{{ credit.limit_paisa|money }}</td>
             </tr>
             <tr>
-              <td class="py-0.5 text-gray-600">Owes now</td>
+              <td class="py-0.5 text-muted">Owes now</td>
               <td class="amount py-0.5">{{ credit.balance_paisa|money }}</td>
             </tr>
-            <tr class="border-t border-gray-300">
-              <td class="py-0.5 {% if not credit.is_within_limit %}font-semibold text-cancelled{% endif %}">
+            <tr class="border-t border-rule">
+              <td class="py-0.5 {% if not credit.is_within_limit %}font-semibold text-alarm{% endif %}">
                 {% if credit.is_within_limit %}Would owe{% else %}Would owe (over){% endif %}
               </td>
-              <td class="amount py-0.5 {% if not credit.is_within_limit %}font-semibold text-cancelled{% endif %}">
+              <td class="amount py-0.5 {% if not credit.is_within_limit %}font-semibold text-alarm{% endif %}">
                 {{ credit.would_owe_paisa|money }}
               </td>
             </tr>
             <tr>
-              <td class="py-0.5 text-xs text-gray-500">
+              <td class="py-0.5 text-xs text-muted">
                 {% if credit.is_within_limit %}Headroom left{% else %}Over by{% endif %}
               </td>
-              <td class="amount py-0.5 text-xs {% if credit.is_within_limit %}text-gray-500{% else %}text-cancelled{% endif %}">
+              <td class="amount py-0.5 text-xs {% if credit.is_within_limit %}text-muted{% else %}text-alarm{% endif %}">
                 {% if credit.is_within_limit %}
                   {{ credit.headroom_paisa|money }}
                 {% else %}
@@ -113,8 +122,8 @@
       figure back one block further down; see apps/accounts/masking.py.
     {% endcomment %}
     {% if perms.masters.view_cost_price %}
-    <div>
-      <h2 class="mb-1 text-xs font-semibold uppercase tracking-wide text-gray-600">
+    <div class="hidden md:block">
+      <h2 class="mb-1 text-xs font-semibold uppercase tracking-wide text-muted">
         {% if document.status == "DRAFT" %}
           General ledger preview
         {% else %}
@@ -126,9 +135,9 @@
         <table class="w-full text-sm">
           <tbody>
             {% for gl in gl_lines %}
-              <tr class="border-b border-gray-100">
+              <tr class="border-b border-rule">
                 <td class="py-0.5 pr-2">
-                  <span class="font-mono text-xs text-gray-500">{{ gl.account.code }}</span>
+                  <span class="font-mono text-xs text-muted">{{ gl.account.code }}</span>
                   {{ gl.account.name }}
                 </td>
                 <td class="amount py-0.5 pr-2">{{ gl.debit_paisa|money }}</td>
@@ -137,12 +146,12 @@
             {% endfor %}
           </tbody>
           <tfoot>
-            <tr class="border-t border-gray-800 font-semibold">
+            <tr class="border-t border-ink font-semibold">
               <td class="py-1 pr-2">
                 {% if gl_debit_paisa == gl_credit_paisa %}
                   Balanced
                 {% else %}
-                  <span class="text-cancelled">OUT OF BALANCE</span>
+                  <span class="text-alarm">OUT OF BALANCE</span>
                 {% endif %}
               </td>
               <td class="amount py-1 pr-2">{{ gl_debit_paisa|money }}</td>
@@ -151,7 +160,7 @@
           </tfoot>
         </table>
         {% if is_return and document.status == "DRAFT" %}
-          <p class="mt-1 text-xs text-gray-500">
+          <p class="mt-1 text-xs text-muted">
             {% if document.against_invoice_id %}
               Stock comes back at what {{ document.against_invoice.code }} recorded it costing.
             {% else %}
@@ -160,14 +169,14 @@
           </p>
         {% endif %}
       {% else %}
-        <p class="text-sm text-gray-500">Add a line to see what this will post.</p>
+        <p class="text-sm text-muted">Add a line to see what this will post.</p>
       {% endif %}
     </div>
     {% endif %}
   </div>
 
   {# --------------------------------------------------------------- actions #}
-  <div class="mt-2 flex flex-wrap items-center gap-2 border-t border-gray-200 pt-2">
+  <div class="mt-2 flex flex-wrap items-center gap-2 border-t border-rule pt-2">
     {% if document.status == "DRAFT" %}
       <form method="post" action="{% url 'sales:post' slug=kind.slug pk=document.pk %}"
             class="flex items-center gap-2">
@@ -179,18 +188,18 @@
             form is not a permission.
           {% endcomment %}
           {% if may_override %}
-            <label class="flex items-center gap-1 text-sm text-cancelled">
+            <label class="flex items-center gap-1 text-sm text-alarm">
               <input type="checkbox" name="override_credit_limit" value="1" tabindex="70">
               Post over the limit
             </label>
           {% else %}
-            <span class="text-sm text-cancelled">
+            <span class="text-sm text-alarm">
               Over the credit limit — needs someone with the override permission.
             </span>
           {% endif %}
         {% endif %}
         <button type="submit" data-action="post" tabindex="80"
-                class="rounded bg-posted px-4 py-2 text-sm font-semibold text-white disabled:opacity-40"
+                class="rounded-sharp bg-signal px-4 py-2 text-sm font-semibold text-white disabled:opacity-40"
                 {% if not lines %}disabled{% endif %}>
           Post {{ kind.title|lower }} <span class="opacity-70">(Alt+P)</span>
         </button>
@@ -198,7 +207,7 @@
       <form method="post" action="{% url 'sales:delete' slug=kind.slug pk=document.pk %}"
             onsubmit="return confirm('Delete this draft? It has written nothing to any ledger.');">
         {% csrf_token %}
-        <button type="submit" class="rounded border border-gray-300 px-3 py-2 text-sm">
+        <button type="submit" class="rounded-sharp border border-rule px-3 py-2 text-sm">
           Delete draft
         </button>
       </form>
@@ -210,11 +219,11 @@
         is written — see apps/core/views.py.
       {% endcomment %}
       <a href="{% url 'sales:cancel' slug=kind.slug pk=document.pk %}"
-         class="rounded bg-cancelled px-4 py-2 text-sm font-semibold text-white">
+         class="rounded-sharp bg-alarm px-4 py-2 text-sm font-semibold text-white">
         Cancel &amp; reverse…
       </a>
       {% if not document.may_cancel %}
-        <span class="text-sm text-cancelled">
+        <span class="text-sm text-alarm">
           Something depends on this document — the cancel screen names it.
         </span>
       {% endif %}
@@ -223,12 +232,12 @@
       <form method="post" action="{% url 'sales:amend' slug=kind.slug pk=document.pk %}">
         {% csrf_token %}
         <button type="submit"
-                class="rounded bg-brand-700 px-4 py-2 text-sm font-semibold text-white">
+                class="rounded-sharp bg-signal px-4 py-2 text-sm font-semibold text-white">
           Amend into a new draft
         </button>
       </form>
       {% if document.cancel_reason %}
-        <span class="text-sm text-gray-500">Cancelled: {{ document.cancel_reason }}</span>
+        <span class="text-sm text-muted">Cancelled: {{ document.cancel_reason }}</span>
       {% endif %}
     {% endif %}
   </div>

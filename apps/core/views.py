@@ -100,4 +100,18 @@ def cancel_view(request, document, *, cancel, back_url, title, extra=None):
     return render(request, CANCEL_TEMPLATE, context, status=status)
 
 
-__all__ = ["CANCEL_TEMPLATE", "cancel_view"]
+def shortcuts(request):
+    """The keyboard reference at ``/shortcuts``.
+
+    Rendered from :data:`apps.core.shortcuts.SHORTCUTS`, which is also what the
+    JS binds — so this page cannot document a key that does nothing.
+
+    No permission check: it describes keys, not data, and every one of them is
+    inert on a screen the person cannot open.
+    """
+    from .shortcuts import SHORTCUTS
+
+    return render(request, "core/shortcuts.html", {"shortcuts": SHORTCUTS})
+
+
+__all__ = ["CANCEL_TEMPLATE", "cancel_view", "shortcuts"]

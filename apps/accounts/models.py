@@ -32,6 +32,25 @@ from django.db import models
 from apps.core.models import TimeStampedModel
 
 
+class Density(models.TextChoices):
+    """How tightly the UI packs rows and controls.
+
+    A per-user setting rather than a global one because the two people using
+    this system all day want opposite things: an operator keying bills wants as
+    many lines on screen as will fit, and the accountant reading a ledger wants
+    the row height the brief specifies. Neither is right for both.
+
+    It changes vertical rhythm and nothing else — same type sizes, same rules,
+    same colours — so a screen does not become a different screen when it is
+    switched. The value is written onto ``<html data-density>`` by the server so
+    the first paint is already correct; a class toggled by JS after load makes
+    every screen visibly reflow.
+    """
+
+    COMFORTABLE = "comfortable", "Comfortable"
+    COMPACT = "compact", "Compact"
+
+
 class UserProfile(TimeStampedModel):
     """The business facts attached to a login.
 
@@ -84,6 +103,15 @@ class UserProfile(TimeStampedModel):
         null=True,
         blank=True,
         help_text="When this user last set their own password. Never typed in.",
+    )
+    density = models.CharField(
+        max_length=12,
+        choices=Density.choices,
+        default=Density.COMFORTABLE,
+        help_text=(
+            "How tightly rows and controls are packed. Operators entering bills all "
+            "day want compact; somebody reading a ledger usually does not."
+        ),
     )
 
     class Meta:
@@ -187,4 +215,4 @@ class UserProfile(TimeStampedModel):
         )
 
 
-__all__ = ["UserProfile"]
+__all__ = ["Density", "UserProfile"]

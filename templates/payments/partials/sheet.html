@@ -13,7 +13,7 @@
   {# --------------------------------------------------------- ageing strip #}
   <div class="mb-4 grid gap-3 lg:grid-cols-3">
     <div class="lg:col-span-2">
-      <h2 class="mb-1 text-xs font-semibold uppercase tracking-wide text-gray-600">
+      <h2 class="mb-1 text-xs font-semibold uppercase tracking-wide text-muted">
         Ageing — {{ total_open_paisa|money }} out
       </h2>
       <div class="grid grid-cols-5 gap-2">
@@ -28,24 +28,24 @@
              hx-get="{% url 'payments:recovery-rows' %}?bucket={{ value|urlencode }}"
              hx-target="#sheet"
              hx-swap="outerHTML"
-             class="block rounded border px-2 py-2 text-center
-                    {% if is_overdue and paisa %}border-cancelled/40 bg-cancelled/5{% else %}border-gray-200 bg-white{% endif %}
-                    {% if value == criteria.bucket %}ring-2 ring-brand-500{% endif %}">
-            <span class="block text-xs uppercase tracking-wide text-gray-500">{{ label }}</span>
+             class="block rounded-sharp border px-2 py-2 text-center
+                    {% if is_overdue and paisa %}border-alarm/40 bg-alarm/5{% else %}border-rule bg-white{% endif %}
+                    {% if value == criteria.bucket %}ring-2 ring-signal{% endif %}">
+            <span class="block text-xs uppercase tracking-wide text-muted">{{ label }}</span>
             <span class="amount block text-sm font-semibold
-                         {% if is_overdue and paisa %}text-cancelled{% endif %}">
+                         {% if is_overdue and paisa %}text-alarm{% endif %}">
               {{ paisa|money }}
             </span>
           </a>
         {% endfor %}
       </div>
-      <p class="mt-1 text-xs text-gray-500">
+      <p class="mt-1 text-xs text-muted">
         {{ total_overdue_paisa|money }} of it is overdue.
         {% if total_on_account_paisa %}
           {{ total_on_account_paisa|money }} is sitting on account, applied to nothing.
         {% endif %}
         {% if flagged_count %}
-          <span class="text-cancelled">
+          <span class="text-alarm">
             {{ flagged_count }} shop{{ flagged_count|pluralize }} ha{{ flagged_count|pluralize:"s,ve" }}
             bounced a cheque.
           </span>
@@ -55,68 +55,68 @@
 
     {# --------------------------------------------- today's recovery, by route #}
     <div>
-      <h2 class="mb-1 text-xs font-semibold uppercase tracking-wide text-gray-600">
+      <h2 class="mb-1 text-xs font-semibold uppercase tracking-wide text-muted">
         Recovery on {{ as_of|date:"d M Y" }}
       </h2>
       {% if day_lines %}
         <table class="w-full text-sm">
           <thead>
-            <tr class="border-b border-gray-300 text-left text-xs uppercase tracking-wide text-gray-500">
-              <th class="py-1 pr-2">Route</th>
-              <th class="py-1 pr-2 text-right">Collected</th>
-              <th class="py-1 text-right">Outstanding</th>
+            <tr>
+              <th scope="col" class="py-1">Route</th>
+              <th scope="col" class="py-1 text-right">Collected</th>
+              <th scope="col" class="py-1 text-right">Outstanding</th>
             </tr>
           </thead>
           <tbody>
             {% for line in day_lines %}
-              <tr class="border-b border-gray-100">
-                <td class="py-1 pr-2">
-                  <span class="font-mono text-xs text-gray-500">{{ line.route_code }}</span>
+              <tr>
+                <td class="py-1">
+                  <span class="font-mono text-xs text-muted">{{ line.route_code }}</span>
                   {{ line.route_name }}
-                  <span class="text-xs text-gray-400">{{ line.recovery_rate_display }}</span>
+                  <span class="text-xs text-muted">{{ line.recovery_rate_display }}</span>
                 </td>
-                <td class="amount py-1 pr-2 {% if line.collected_paisa %}text-posted{% endif %}">
+                <td class="amount py-1 {% if line.collected_paisa %}text-signal{% endif %}">
                   {{ line.collected_paisa|money }}
                 </td>
-                <td class="amount py-1 {% if line.outstanding_paisa %}text-cancelled{% endif %}">
+                <td class="amount py-1 {% if line.outstanding_paisa %}text-alarm{% endif %}">
                   {{ line.outstanding_paisa|money }}
                 </td>
               </tr>
             {% endfor %}
           </tbody>
           <tfoot>
-            <tr class="border-t border-gray-800 font-semibold">
-              <td class="py-1 pr-2">
+            <tr class="border-t border-ink font-semibold">
+              <td class="py-1">
                 {{ day_payment_count }} payment{{ day_payment_count|pluralize }}
               </td>
-              <td class="amount py-1 pr-2">{{ day_collected_paisa|money }}</td>
+              <td class="amount py-1">{{ day_collected_paisa|money }}</td>
               <td class="amount py-1">{{ day_outstanding_paisa|money }}</td>
             </tr>
           </tfoot>
         </table>
-        <p class="mt-1 text-xs text-gray-500">
+        <p class="mt-1 text-xs text-muted">
           Collected is grouped by the route on the payment; outstanding by the shop's own
           beat. On a covered beat those are not the same thing.
         </p>
       {% else %}
-        <p class="text-sm text-gray-500">Nothing collected on this day yet.</p>
+        <p class="text-sm text-muted">Nothing collected on this day yet.</p>
       {% endif %}
     </div>
   </div>
 
   {# ----------------------------------------------------------------- rows #}
-  <table class="w-full border-collapse text-sm">
+  <table class="table">
     <thead>
-      <tr class="border-b border-gray-300 text-left text-xs uppercase tracking-wide text-gray-600">
-        <th class="py-2 pr-2 w-6"></th>
-        <th class="py-2 pr-2">Client</th>
-        <th class="py-2 pr-2">Phone</th>
-        <th class="py-2 pr-2">Route</th>
-        <th class="py-2 pr-2 text-right">Outstanding</th>
-        <th class="py-2 pr-2 text-right">Overdue</th>
-        <th class="py-2 pr-2">Oldest invoice</th>
-        <th class="py-2 pr-2">Last payment</th>
-        <th class="py-2 pr-2">Age</th>
+      <tr>
+        <th scope="col" class="w-6"></th>
+        <th scope="col">Client</th>
+        <th scope="col">Phone</th>
+        <th scope="col">Route</th>
+        <th scope="col" class="text-right">Outstanding</th>
+        <th scope="col" class="text-right">Overdue</th>
+        <th scope="col">Oldest invoice</th>
+        <th scope="col">Last payment</th>
+        <th scope="col">Age</th>
       </tr>
     </thead>
     <tbody>
@@ -124,7 +124,7 @@
         {% include "payments/partials/row.html" %}
       {% empty %}
         <tr>
-          <td colspan="9" class="py-6 text-center text-sm text-gray-500">
+          <td colspan="9" class="empty">
             Nothing outstanding{% if criteria.bucket %} in this bucket{% endif %}. Everybody is paid up.
           </td>
         </tr>
@@ -133,7 +133,7 @@
   </table>
 
   {% if truncated %}
-    <p class="mt-3 text-xs text-gray-500">
+    <p class="mt-3 text-xs text-muted">
       Showing the {{ rows|length }} oldest of {{ row_count }}. {{ truncated }} more are hidden —
       filter by route, seller or bucket to reach them.
     </p>

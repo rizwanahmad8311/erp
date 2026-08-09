@@ -11,27 +11,27 @@
   here, because the moment to know that is before agreeing to take another one.
 {% endcomment %}
 
-<tr class="border-b border-gray-100 align-baseline{% if row.is_flagged %} bg-cancelled/5{% endif %}">
+<tr class="border-b border-rule align-baseline{% if row.is_flagged %} bg-alarm/5{% endif %}">
   <td class="py-1.5 pr-2">
     <button type="button"
             title="Show the open invoices"
-            class="text-brand-700"
+            class="text-signal"
             hx-get="{% url 'payments:recovery-client' pk=row.client.pk %}?as_of={{ row.as_of|date:'Y-m-d' }}"
             hx-target="#client-{{ row.client.pk }}"
             hx-swap="innerHTML">+</button>
   </td>
 
   <td class="py-1.5 pr-2">
-    <span class="font-mono text-xs text-gray-500">{{ row.client.code }}</span>
+    <span class="font-mono text-xs text-muted">{{ row.client.code }}</span>
     {{ row.client.name }}
     {% if row.is_flagged %}
-      <span class="ml-1 rounded border border-cancelled/40 bg-cancelled/10 px-1 text-xs font-medium text-cancelled"
+      <span class="ml-1 rounded-sharp border border-alarm/40 bg-alarm/10 px-1 text-xs font-medium text-alarm"
             title="{{ row.bounced_cheque_count }} cheque(s) totalling {{ row.bounced_cheque_paisa|money }} have bounced.">
         bounced
       </span>
     {% endif %}
     {% if row.has_on_account %}
-      <span class="ml-1 rounded border border-posted/40 bg-posted/10 px-1 text-xs font-medium text-posted"
+      <span class="ml-1 rounded-sharp border border-signal/40 bg-signal/10 px-1 text-xs font-medium text-signal"
             title="Money already received that has not been applied to a bill.">
         {{ row.on_account_paisa|money }} on account
       </span>
@@ -42,29 +42,29 @@
   <td class="py-1.5 pr-2">{{ row.client.route.code|default:"—" }}</td>
 
   <td class="amount py-1.5 pr-2 font-medium">{{ row.outstanding_paisa|money }}</td>
-  <td class="amount py-1.5 pr-2 {% if row.overdue_paisa %}font-semibold text-cancelled{% else %}text-gray-400{% endif %}">
+  <td class="amount py-1.5 pr-2 {% if row.overdue_paisa %}font-semibold text-alarm{% else %}text-muted{% endif %}">
     {{ row.overdue_paisa|money }}
   </td>
 
   <td class="py-1.5 pr-2 whitespace-nowrap">
     {% if row.oldest_invoice_date %}
       {{ row.oldest_invoice_date|date:"d M Y" }}
-      <span class="text-xs text-gray-500">{{ row.oldest_days }}d</span>
+      <span class="text-xs text-muted">{{ row.oldest_days }}d</span>
     {% else %}—{% endif %}
   </td>
 
   <td class="py-1.5 pr-2 whitespace-nowrap">
     {% if row.last_payment_date %}
       {{ row.last_payment_date|date:"d M Y" }}
-      <span class="text-xs text-gray-500">{{ row.last_payment_paisa|money }}</span>
+      <span class="text-xs text-muted">{{ row.last_payment_paisa|money }}</span>
     {% else %}
-      <span class="text-gray-400">never</span>
+      <span class="text-muted">never</span>
     {% endif %}
   </td>
 
   <td class="py-1.5 pr-2">
-    <span class="inline-flex items-center rounded border px-1.5 py-0.5 text-xs font-medium uppercase tracking-wide
-                 {% if row.worst_bucket == 'CURRENT' %}border-gray-300 bg-gray-100 text-gray-700{% else %}border-cancelled/30 bg-cancelled/10 text-cancelled{% endif %}">
+    <span class="inline-flex items-center rounded-sharp border px-1.5 py-0.5 text-xs font-medium uppercase tracking-wide
+                 {% if row.worst_bucket == 'CURRENT' %}border-rule bg-signal/5 text-ink{% else %}border-alarm/30 bg-alarm/10 text-alarm{% endif %}">
       {{ row.worst_bucket }}
     </span>
   </td>

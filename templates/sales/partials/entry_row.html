@@ -17,7 +17,7 @@
 
   {# ------------------------------------------------ item, by autocomplete #}
   <div class="col-span-4 relative">
-    <label class="block text-xs uppercase tracking-wide text-gray-600" for="item-search">
+    <label class="block text-xs uppercase tracking-wide text-muted" for="item-search">
       Item
     </label>
     <input type="search"
@@ -30,46 +30,47 @@
            {% if not picked_item %}data-autofocus{% endif %}
            value="{% if picked_item %}{{ picked_item.code }} — {{ picked_item.name }}{% endif %}"
            placeholder="Code or name…"
-           class="w-full rounded border border-gray-300 px-2 py-1.5 text-sm focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500"
+           class="w-full rounded-sharp border border-rule px-2 py-1.5 text-sm focus:border-signal focus:outline-none focus:ring-1 focus:ring-signal"
            hx-get="{% url 'sales:item-search' slug=kind.slug pk=document.pk %}"
            hx-trigger="keyup changed delay:150ms, search"
            hx-target="#item-results"
            hx-swap="innerHTML">
 
-    {# The chosen row. Hidden, because the operator picks a real item rather
-       than typing something the server has to guess at. #}
+    {% comment %}The chosen row. Hidden, because the operator picks a real item
+       rather than typing something the server has to guess at.{% endcomment %}
     {{ line_form.item }}
 
     <div id="item-results" data-results
-         class="absolute z-10 mt-0.5 w-full overflow-hidden rounded border border-gray-300 bg-white shadow-sm empty:hidden"></div>
+         class="absolute z-10 mt-0.5 w-full overflow-hidden rounded-sharp border border-rule bg-white empty:hidden"></div>
 
     {% if picked_item %}
-      <p class="mt-1 text-xs {% if available_base <= 0 %}text-cancelled{% else %}text-gray-500{% endif %}">
+      {# Bold ink, not rust — see the note in grid.html on keeping rust reserved. #}
+      <p class="mt-1 text-xs {% if available_base <= 0 %}font-semibold text-ink{% else %}text-muted{% endif %}">
         In stock: {{ available_display }}
       </p>
     {% endif %}
   </div>
 
-  <label class="col-span-2 block text-xs uppercase tracking-wide text-gray-600">
+  <label class="col-span-2 block text-xs uppercase tracking-wide text-muted">
     Qty
     {% if picked_item %}
       <input type="number" name="qty_input" id="id_qty_input" tabindex="20"
              step="1" min="1" value="{{ line_form.qty_input.value|default:1 }}"
              autocomplete="off" data-autofocus
-             class="amount w-full rounded border border-gray-300 px-2 py-1.5 text-sm focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500">
+             class="amount w-full rounded-sharp border border-rule px-2 py-1.5 text-sm focus:border-signal focus:outline-none focus:ring-1 focus:ring-signal">
     {% else %}
       {{ line_form.qty_input }}
     {% endif %}
     {% if line_form.qty_input.errors %}
-      <span class="block normal-case text-xs text-cancelled">{{ line_form.qty_input.errors|join:" " }}</span>
+      <span class="block normal-case text-xs text-alarm">{{ line_form.qty_input.errors|join:" " }}</span>
     {% endif %}
   </label>
 
-  <label class="col-span-2 block text-xs uppercase tracking-wide text-gray-600">
+  <label class="col-span-2 block text-xs uppercase tracking-wide text-muted">
     Unit
     {{ line_form.unit_input }}
     {% if picked_item %}
-      <span class="block normal-case text-xs text-gray-500">
+      <span class="block normal-case text-xs text-muted">
         {% if picked_item.allows_carton %}
           {{ picked_item.carton_size }} per carton
         {% else %}
@@ -79,19 +80,19 @@
     {% endif %}
   </label>
 
-  <label class="col-span-2 block text-xs uppercase tracking-wide text-gray-600">
+  <label class="col-span-2 block text-xs uppercase tracking-wide text-muted">
     Rate
     {{ line_form.rate_input }}
     {% if line_form.rate_input.errors %}
-      <span class="block normal-case text-xs text-cancelled">{{ line_form.rate_input.errors|join:" " }}</span>
+      <span class="block normal-case text-xs text-alarm">{{ line_form.rate_input.errors|join:" " }}</span>
     {% endif %}
   </label>
 
-  <label class="col-span-2 block text-xs uppercase tracking-wide text-gray-600">
+  <label class="col-span-2 block text-xs uppercase tracking-wide text-muted">
     Discount
     {{ line_form.discount }}
     {% if line_form.discount.errors %}
-      <span class="block normal-case text-xs text-cancelled">{{ line_form.discount.errors|join:" " }}</span>
+      <span class="block normal-case text-xs text-alarm">{{ line_form.discount.errors|join:" " }}</span>
     {% endif %}
   </label>
 </div>

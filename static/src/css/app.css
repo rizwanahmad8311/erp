@@ -11,33 +11,476 @@
 @source "../../../templates";
 @source "../../../apps";
 
-@theme {
-  /* Print-first palette: invoices and ledgers are read on paper as often as
-   * on screen, so contrast is tuned for a mono laser printer. */
-  --color-brand-50: oklch(0.97 0.02 250);
-  --color-brand-500: oklch(0.55 0.16 250);
-  --color-brand-700: oklch(0.42 0.14 250);
-
-  --color-posted: oklch(0.55 0.14 150);
-  --color-draft: oklch(0.65 0.12 85);
-  --color-cancelled: oklch(0.55 0.16 25);
-
-  /* Tabular figures matter: amount columns must align digit-for-digit. */
-  --font-mono: ui-monospace, "SFMono-Regular", "Consolas", monospace;
-}
-
-/* Vendored webfonts go here once dropped into static/src/fonts/.
- * Never an external @import or <link> to a font CDN.
+/* ==========================================================================
+ * Fonts — vendored, three roles
+ * ==========================================================================
+ * Downloaded from the Fontsource npm packages and committed under
+ * static/src/fonts (copied to static/dist/fonts by `make js`). Never an
+ * external @import or <link>: the production PC has no internet, and a font
+ * that has to be fetched is a several-second stall on every request.
  *
- * @font-face {
- *   font-family: "Inter";
- *   src: url("../fonts/inter-regular.woff2") format("woff2");
- *   font-weight: 400;
- *   font-display: swap;
- * }
+ * **The src paths are relative to the OUTPUT, not to this file.** Tailwind
+ * copies `url(...)` through verbatim, and the output lands at
+ * static/dist/app.css, which is served as /static/app.css — so `fonts/x.woff2`
+ * resolves to /static/fonts/x.woff2 and `../fonts/x.woff2` would resolve to
+ * /fonts/x.woff2 and 404 into a system fallback. Nothing loads this file
+ * directly, so the output is the only frame of reference that matters.
+ *
+ * Only the latin subset and only the weights actually used are vendored —
+ * seven files, ~147KB total. Adding a weight means adding a file; there is no
+ * variable font here because a static subset is smaller at three weights and
+ * renders identically on the office machines.
+ *
+ * font-display: swap is deliberate even though the files are local. They are
+ * still a separate request behind the stylesheet, and swap draws the text in
+ * the fallback immediately rather than holding a blank table for a frame.
  */
 
+/* Inter Tight — headings and screen titles */
+@font-face {
+  font-family: "Inter Tight";
+  src: url("fonts/inter-tight-latin-500-normal.woff2") format("woff2");
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Inter Tight";
+  src: url("fonts/inter-tight-latin-600-normal.woff2") format("woff2");
+  font-weight: 600;
+  font-style: normal;
+  font-display: swap;
+}
+
+/* Inter — body, labels, form fields */
+@font-face {
+  font-family: "Inter";
+  src: url("fonts/inter-latin-400-normal.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Inter";
+  src: url("fonts/inter-latin-500-normal.woff2") format("woff2");
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Inter";
+  src: url("fonts/inter-latin-600-normal.woff2") format("woff2");
+  font-weight: 600;
+  font-style: normal;
+  font-display: swap;
+}
+
+/* IBM Plex Mono — every number, every document code, every date */
+@font-face {
+  font-family: "IBM Plex Mono";
+  src: url("fonts/ibm-plex-mono-latin-400-normal.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "IBM Plex Mono";
+  src: url("fonts/ibm-plex-mono-latin-500-normal.woff2") format("woff2");
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+}
+
+@theme {
+  /* ----------------------------------------------------------------------
+   * Cool paper, ink, one signal colour, one alarm colour.
+   * ----------------------------------------------------------------------
+   * Six colours, and that is the whole palette. The restraint is the point:
+   * everything on screen is quiet so that the posting strip and the rust
+   * reversals carry the weight.
+   *
+   * Rust is reserved. Cancelled documents and reversing entries are rust and
+   * *nothing else is* — when an accountant scans a ledger the reversals have
+   * to jump out without being read. The moment rust also means "required
+   * field" or "delete button", that stops being true.
+   *
+   * apps/reports/pdf/theme.py mirrors these as sRGB hex for ReportLab, and
+   * tests/test_pdf.py::TestTheme fails the build if the two drift.
+   */
+  --color-paper: #fbfbf9; /* background, very slightly warm white (not cream) */
+  --color-ink: #1a1d21; /* primary text */
+  --color-rule: #dddcd6; /* hairlines, table borders */
+  --color-muted: #6e7178; /* secondary text, labels */
+  --color-signal: #0b5d51; /* deep pine — primary actions, posted state */
+  --color-alarm: #a3341f; /* rust — cancelled, reversing entries, overdue */
+
+  /* Type: three roles, no more. */
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-display: "Inter Tight", "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", "Consolas", monospace;
+
+  /* Radius is 3px or 0. There is no other value. */
+  --radius-sharp: 3px;
+}
+
+/* ==========================================================================
+ * Density
+ * ==========================================================================
+ * Comfortable is the brief's 32px row. Compact tightens the vertical rhythm
+ * and nothing else — same type sizes, same rules, same colours, so a screen
+ * does not become a different screen when it is switched.
+ *
+ * Operators run compact all day and want more lines per screenful; the
+ * accountant reading a ledger may not. Stored per user on UserProfile and
+ * written onto <html> by the server, so the first paint is already right —
+ * a class toggled by JS after load makes every screen visibly reflow.
+ */
+:root,
+:root[data-density="comfortable"] {
+  --row-h: 32px;
+  --row-pad-y: 6px;
+  --control-h: 32px;
+}
+
+:root[data-density="compact"] {
+  --row-h: 26px;
+  --row-pad-y: 3px;
+  --control-h: 28px;
+}
+
+@layer base {
+  html {
+    font-family: var(--font-sans);
+  }
+
+  body {
+    background-color: var(--color-paper);
+    color: var(--color-ink);
+  }
+
+  /* Headings carry the tight face and tight tracking. */
+  h1,
+  h2,
+  h3,
+  h4 {
+    font-family: var(--font-display);
+    letter-spacing: -0.011em;
+  }
+
+  /* Every number, every document code, every date is mono and tabular. A
+   * column of figures that does not align digit-for-digit is a column
+   * somebody adds up wrong. */
+  .amount,
+  .qty,
+  .doc-code,
+  .doc-date,
+  td.amount,
+  input[type="number"],
+  input[inputmode="decimal"],
+  input[inputmode="numeric"] {
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: "tnum" 1;
+  }
+
+  /* Focus is always visible and always signal. Operators work this screen
+   * without a mouse — a focus ring that only shows for :focus-visible on some
+   * controls and never on others is how somebody loses their place in a grid.
+   */
+  :focus-visible {
+    outline: 2px solid var(--color-signal);
+    outline-offset: 1px;
+    border-radius: var(--radius-sharp);
+  }
+}
+
 @layer components {
+  /* ------------------------------------------------------------------ table
+   * The data table. Rules, not stripes.
+   *
+   * Zebra is off on purpose: hairline rules already separate the rows, and a
+   * tint on every other row competes with the two tints that carry meaning
+   * (the rust of a reversal, the signal wash of the row under the cursor).
+   */
+  .table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.8125rem;
+    line-height: 1.25rem;
+  }
+
+  /* Sticky header: a ledger is scrolled, and a column you cannot name is a
+   * column you have to scroll back up to read. */
+  .table thead th {
+    position: sticky;
+    top: 0;
+    z-index: 5;
+    background-color: var(--color-paper);
+    border-bottom: 1px solid var(--color-rule);
+    padding: var(--row-pad-y) 0.5rem var(--row-pad-y) 0;
+    text-align: left;
+    font-family: var(--font-sans);
+    font-size: 0.6875rem;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--color-muted);
+    white-space: nowrap;
+  }
+
+  .table tbody td {
+    height: var(--row-h);
+    padding: var(--row-pad-y) 0.5rem var(--row-pad-y) 0;
+    border-bottom: 1px solid var(--color-rule);
+  }
+
+  /* 4% signal wash under the cursor. Enough to track a row across a wide
+   * ledger, not enough to read as a state. */
+  .table tbody tr:hover td {
+    background-color: color-mix(in srgb, var(--color-signal) 4%, transparent);
+  }
+
+  /* Numeric columns: right-aligned, mono, tabular. */
+  .table .amount,
+  .table .qty {
+    text-align: right;
+  }
+
+  /* A reversal. The one place rust appears in a table body. */
+  .table tbody tr.is-reversal td,
+  .table tbody tr.is-cancelled td {
+    color: var(--color-alarm);
+  }
+
+  /* --------------------------------------------------------------- controls
+   * 32px high, 3px radius, signal focus ring. Same metrics as a table row so
+   * an inline editor sits in the grid without shifting it by a pixel.
+   */
+  .field {
+    height: var(--control-h);
+    width: 100%;
+    padding: 0 0.5rem;
+    border: 1px solid var(--color-rule);
+    border-radius: var(--radius-sharp);
+    background-color: #fff;
+    color: var(--color-ink);
+    font-size: 0.8125rem;
+    font-family: inherit;
+  }
+
+  /* A textarea is the one control that cannot be 32px — a cancellation reason
+   * is two lines by design. It keeps the border, radius and focus ring and
+   * gives up only the fixed height. */
+  textarea.field {
+    height: auto;
+    padding: 0.375rem 0.5rem;
+    line-height: 1.4;
+  }
+
+  .field::placeholder {
+    color: var(--color-muted);
+  }
+
+  .field:focus {
+    outline: 2px solid var(--color-signal);
+    outline-offset: 0;
+    border-color: var(--color-signal);
+  }
+
+  .field:disabled {
+    background-color: color-mix(in srgb, var(--color-rule) 30%, #fff);
+    color: var(--color-muted);
+  }
+
+  /* Error: the alarm colour, and the message beside the field rather than in
+   * a summary at the top. A validation list above a twenty-line entry grid
+   * makes somebody count rows to find out which line it meant. */
+  .field-error,
+  .field[aria-invalid="true"] {
+    border-color: var(--color-alarm);
+  }
+
+  .field-error:focus,
+  .field[aria-invalid="true"]:focus {
+    outline-color: var(--color-alarm);
+  }
+
+  .field-message {
+    display: inline-block;
+    margin-left: 0.5rem;
+    font-size: 0.75rem;
+    color: var(--color-alarm);
+  }
+
+  .label {
+    display: block;
+    font-size: 0.75rem;
+    font-weight: 500;
+    color: var(--color-muted);
+    margin-bottom: 0.125rem;
+  }
+
+  /* ---------------------------------------------------------------- buttons */
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.375rem;
+    height: var(--control-h);
+    padding: 0 0.75rem;
+    border-radius: var(--radius-sharp);
+    border: 1px solid transparent;
+    font-size: 0.8125rem;
+    font-weight: 500;
+    white-space: nowrap;
+  }
+
+  /* The primary action. Signal, and there is one per screen. */
+  .btn-signal {
+    background-color: var(--color-signal);
+    color: #fff;
+  }
+
+  .btn-signal:disabled {
+    opacity: 0.4;
+  }
+
+  /* Destructive: cancelling a document writes reversing entries, so it is
+   * rust for the same reason the reversal rows are. */
+  .btn-alarm {
+    background-color: var(--color-alarm);
+    color: #fff;
+  }
+
+  .btn-quiet {
+    border-color: var(--color-rule);
+    background-color: #fff;
+    color: var(--color-ink);
+  }
+
+  /* ------------------------------------------------------------------ chips
+   * Document status. Draft is outlined because a draft has written nothing —
+   * it should not carry a filled colour that implies it has.
+   */
+  .chip {
+    display: inline-flex;
+    align-items: center;
+    height: 20px;
+    padding: 0 0.375rem;
+    border-radius: var(--radius-sharp);
+    border: 1px solid transparent;
+    font-family: var(--font-sans);
+    font-size: 0.6875rem;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+  }
+
+  .chip-draft {
+    border-color: var(--color-rule);
+    color: var(--color-muted);
+    background-color: transparent;
+  }
+
+  .chip-posted {
+    background-color: var(--color-signal);
+    color: #fff;
+  }
+
+  .chip-cancelled {
+    background-color: var(--color-alarm);
+    color: #fff;
+  }
+
+  /* ---------------------------------------------------------- posting strip
+   * The signature element. Pinned to the bottom of every entry screen: the
+   * running total on the left, and on the right the exact ledger effect this
+   * document will have when it is posted — which accounts get debited and
+   * credited, and by how much.
+   *
+   * Accounting is normally invisible until month-end. Making it visible during
+   * entry is what catches a mistake at the point it is made rather than three
+   * weeks later, and it is the one memorable thing about this system.
+   *
+   * A single hairline above it. No shadow — the brief allows one hairline and
+   * that is what separates it from the rows scrolling underneath.
+   */
+  .posting-strip {
+    position: sticky;
+    bottom: 0;
+    z-index: 20;
+    background-color: var(--color-paper);
+    border-top: 1px solid var(--color-ink);
+  }
+
+  /* Out of balance is rust, because an unbalanced posting is the same class of
+   * problem as a reversal somebody has to find. */
+  .posting-strip .is-unbalanced {
+    color: var(--color-alarm);
+    font-weight: 600;
+  }
+
+  /* ---------------------------------------------------------------- sidebar
+   * Grouped by module. The current section is marked with a 2px signal rule
+   * on the leading edge — not a filled background, which would put a seventh
+   * colour weight on screen for something that is only "you are here".
+   */
+  .nav-group-label {
+    font-size: 0.6875rem;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--color-muted);
+  }
+
+  .nav-item {
+    display: block;
+    border-left: 2px solid transparent;
+    padding: 0.25rem 0.75rem;
+    font-size: 0.8125rem;
+    color: var(--color-ink);
+  }
+
+  .nav-item:hover {
+    background-color: color-mix(in srgb, var(--color-signal) 4%, transparent);
+  }
+
+  .nav-item[aria-current="page"] {
+    border-left-color: var(--color-signal);
+    color: var(--color-signal);
+    font-weight: 500;
+  }
+
+  /* ----------------------------------------------------------- empty states
+   * An empty state names the next action. "No records found" tells somebody
+   * who is already looking at an empty table the one thing they knew.
+   */
+  .empty {
+    padding: 2rem 0;
+    text-align: center;
+    color: var(--color-muted);
+    font-size: 0.8125rem;
+  }
+
+  .empty-action {
+    color: var(--color-signal);
+    font-weight: 500;
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+
+  /* ------------------------------------------------------------ print-only
+   * The letterhead and the printed totals block: drawn on paper, never on
+   * screen. The screen half of the pair has to live **here**, outside
+   * @media print — a rule that only exists inside the print block cannot hide
+   * anything on a monitor, and the element renders in the middle of the
+   * workspace with the company address on it.
+   *
+   * Its twin inside @media print turns it back on.
+   */
+  .print-only {
+    display: none;
+  }
+
   /* Money and quantity columns: right-aligned, fixed-width digits. */
   .amount {
     font-variant-numeric: tabular-nums;
@@ -63,12 +506,52 @@
     justify-content: center;
     pointer-events: none;
     user-select: none;
-    font-weight: 800;
+    font-family: var(--font-display);
+    font-weight: 600;
     letter-spacing: 0.15em;
     font-size: clamp(3rem, 16vw, 12rem);
-    color: var(--color-cancelled);
+    color: var(--color-alarm);
     opacity: 0.12;
     transform: rotate(-24deg);
+  }
+}
+
+/* ==========================================================================
+ * Motion
+ * ==========================================================================
+ * One animation in the whole system: a 120ms wash on the row that was just
+ * saved, so an operator entering twenty lines without looking up can see that
+ * the last one landed. Nothing else moves.
+ */
+@keyframes row-saved {
+  from {
+    background-color: color-mix(in srgb, var(--color-signal) 14%, transparent);
+  }
+  to {
+    background-color: transparent;
+  }
+}
+
+.row-saved {
+  animation: row-saved 120ms ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  /* The row highlight is information, not decoration — it is how somebody
+   * knows a line saved. Reduced motion gets the same signal held briefly and
+   * without the transition, rather than nothing at all. */
+  .row-saved {
+    animation: none;
+    background-color: color-mix(in srgb, var(--color-signal) 14%, transparent);
+  }
+
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
   }
 }
 
@@ -128,6 +611,14 @@
     font-size: 10pt;
   }
 
+  /* Density is a screen setting. Paper gets the comfortable rhythm whatever
+   * the operator runs on screen — a compact row is tuned for a monitor at
+   * arm's length, not for 10pt on A4. */
+  :root {
+    --row-h: 32px;
+    --row-pad-y: 6px;
+  }
+
   main {
     max-width: none !important;
     padding: 0 !important;
@@ -138,16 +629,22 @@
     border: 0 !important;
   }
 
-  /* The letterhead. Hidden on screen — the browser already shows which system
-   * you are in — and printed at the top of the page, because a bill with no
-   * company name on it is not a bill. Filled in from CompanyProfile by
-   * templates/core/partials/print_header.html. */
-  .print-only {
-    display: none;
+  /* A sticky header inside a printed table becomes a header floating over the
+   * rows on every page. The `thead` repeat below is the print equivalent. */
+  .table thead th {
+    position: static;
   }
 
-  .print-header {
-    display: block !important;
+  /* The letterhead, and the totals block that goes under a printed line table.
+   * Hidden on screen — the browser already shows which system you are in — and
+   * drawn here, because a bill with no company name on it is not a bill.
+   * Filled in from CompanyProfile by templates/core/partials/print_header.html.
+   *
+   * This is the half that reveals them. The half that hides them is in
+   * @layer components, because it has to apply on screen.
+   */
+  .print-only {
+    display: block;
   }
 
   /* A line table must not be split mid-row, and its head repeats on page two
@@ -171,8 +668,14 @@
   }
 
   /* Ink. A laser at 600dpi renders a 5% grey band as a smudge, and a colour
-   * that only exists to draw the eye on screen costs toner on paper. */
-  .bg-gray-50,
+   * that only exists to draw the eye on screen costs toner on paper. The 4%
+   * hover wash is the clearest example — it must never reach the page. */
+  .table tbody tr:hover td,
+  .nav-item:hover {
+    background: transparent !important;
+  }
+
+  .bg-paper,
   .bg-white {
     background: transparent !important;
   }
@@ -193,7 +696,7 @@
   .doc-watermark {
     position: fixed;
     opacity: 0.2;
-    color: var(--color-cancelled);
+    color: var(--color-alarm);
     -webkit-print-color-adjust: exact;
     print-color-adjust: exact;
   }

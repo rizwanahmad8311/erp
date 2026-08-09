@@ -25,14 +25,14 @@
     {% csrf_token %}
 
     {% if form.non_field_errors %}
-      <p class="mb-3 rounded border border-cancelled/40 bg-cancelled/10 px-2 py-1 text-sm text-cancelled">
+      <p class="mb-3 rounded-sharp border border-alarm/40 bg-alarm/10 px-2 py-1 text-sm text-alarm">
         {{ form.non_field_errors|join:" " }}
       </p>
     {% endif %}
 
     {# ------------------------------------------- client, by autocomplete #}
     <div class="relative mb-3">
-      <label class="block text-xs uppercase tracking-wide text-gray-600" for="client-search">
+      <label class="block text-xs uppercase tracking-wide text-muted" for="client-search">
         {{ kind.party_label }} — search by code, name or phone
       </label>
       <input type="search"
@@ -43,54 +43,54 @@
              data-autofocus
              data-results-for="client-results"
              placeholder="Type a code, a shop name or a phone number…"
-             class="w-full rounded border border-gray-300 px-2 py-1.5 text-sm focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500"
+             class="w-full rounded-sharp border border-rule px-2 py-1.5 text-sm focus:border-signal focus:outline-none focus:ring-1 focus:ring-signal"
              hx-get="{% url 'sales:client-search' %}"
              hx-trigger="keyup changed delay:150ms, search"
              hx-target="#client-results"
              hx-swap="innerHTML">
 
-      {# The chosen row. Hidden: the operator picks a real client rather than
-         typing something the server has to guess at. #}
+      {% comment %}The chosen row. Hidden: the operator picks a real client rather
+         than typing something the server has to guess at.{% endcomment %}
       <div class="hidden">{{ form.client }}</div>
 
       <div id="client-results" data-results
-           class="absolute z-10 mt-0.5 w-full overflow-hidden rounded border border-gray-300 bg-white shadow-sm empty:hidden"></div>
+           class="absolute z-10 mt-0.5 w-full overflow-hidden rounded-sharp border border-rule bg-white empty:hidden"></div>
 
       {% if form.client.errors %}
-        <span class="block text-xs text-cancelled">{{ form.client.errors|join:" " }}</span>
+        <span class="block text-xs text-alarm">{{ form.client.errors|join:" " }}</span>
       {% endif %}
     </div>
 
     <div class="grid gap-3 md:grid-cols-2">
       {% for field in form %}
         {% if field.name != "client" %}
-          <label class="block text-xs uppercase tracking-wide text-gray-600
+          <label class="block text-xs uppercase tracking-wide text-muted
                         {% if field.name == 'remarks' %}md:col-span-2{% endif %}">
             {{ field.label }}
             {{ field }}
             {% if field.help_text %}
-              <span class="block normal-case text-xs text-gray-500">{{ field.help_text }}</span>
+              <span class="block normal-case text-xs text-muted">{{ field.help_text }}</span>
             {% endif %}
             {% if field.errors %}
-              <span class="block normal-case text-xs text-cancelled">{{ field.errors|join:" " }}</span>
+              <span class="block normal-case text-xs text-alarm">{{ field.errors|join:" " }}</span>
             {% endif %}
           </label>
         {% endif %}
       {% endfor %}
     </div>
 
-    <p class="mt-2 text-xs text-gray-500">
+    <p class="mt-2 text-xs text-muted">
       Leave route, seller and due date blank to take the client's own — they can
       be overridden here or on the document.
     </p>
 
     <div class="mt-4 flex items-center gap-2">
-      <button type="submit"
-              class="rounded bg-brand-700 px-4 py-2 text-sm font-semibold text-white">
+      <button type="submit" data-action="save"
+              class="btn btn-signal">
         Start entering lines
       </button>
       <a href="{% url 'sales:list' slug=kind.slug %}"
-         class="rounded border border-gray-300 px-3 py-2 text-sm">Cancel</a>
+         class="rounded-sharp border border-rule px-3 py-2 text-sm">Cancel</a>
     </div>
   </form>
 {% endblock %}

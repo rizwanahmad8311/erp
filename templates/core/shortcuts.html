@@ -1,0 +1,61 @@
+{% extends "base.html" %}
+
+{% comment %}
+  Rendered from apps.core.shortcuts.SHORTCUTS — the same tuple base.html
+  serialises for the JS. This page cannot document a key that does nothing,
+  because there is nowhere else for a key to be defined.
+{% endcomment %}
+
+{% block title %}Keyboard shortcuts{% endblock %}
+
+{% block content %}
+  <h1 class="font-display text-lg font-semibold tracking-tight">Keyboard shortcuts</h1>
+  <p class="mt-1 max-w-prose text-sm text-muted">
+    Every entry screen can be completed without a mouse. A shortcut does nothing
+    on a screen that has no such control — Alt+P on a report is inert, not an
+    error.
+  </p>
+
+  <table class="table mt-5 max-w-3xl">
+    <thead>
+      <tr>
+        <th scope="col">Key</th>
+        <th scope="col">Does</th>
+        <th scope="col">Where</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for shortcut in shortcuts %}
+        <tr>
+          <td class="w-24 whitespace-nowrap">
+            <kbd class="rounded-sharp border border-rule px-1.5 py-0.5 font-mono text-xs">
+              {{ shortcut.label }}
+            </kbd>
+          </td>
+          <td>
+            <span class="font-medium">{{ shortcut.note }}</span>
+          </td>
+          <td class="whitespace-nowrap text-muted">{{ shortcut.scope }}</td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  <h2 class="mt-8 font-display text-base font-semibold tracking-tight">Moving around</h2>
+  <ul class="mt-2 max-w-prose space-y-1 text-sm text-muted">
+    <li>
+      <span class="text-ink">Tab</span> walks an entry screen in the order the work
+      happens: party, then date, then the lines, then the posting strip. It never
+      jumps backwards into the header once you are in the grid.
+    </li>
+    <li>
+      <span class="text-ink">Focus is always visible</span> — a signal-coloured ring
+      on whatever holds the cursor. If you cannot see it, that is a bug worth
+      reporting.
+    </li>
+    <li>
+      <span class="text-ink">Density</span> is in the sidebar. Compact fits more
+      lines on screen and changes nothing else.
+    </li>
+  </ul>
+{% endblock %}

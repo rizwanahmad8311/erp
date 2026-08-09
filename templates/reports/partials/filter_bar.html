@@ -14,22 +14,22 @@
   Ctrl+P the bar disappears and what is left on the page is the report.
 {% endcomment %}
 
-<form method="get" class="no-print mb-4 rounded border border-gray-200 bg-gray-50 p-3">
+<form method="get" class="no-print mb-4 rounded-sharp border border-rule bg-paper p-3">
   <div class="flex flex-wrap items-end gap-3">
     {% for field in form %}
       {% if field.name != "include_cancelled" %}
         <label class="block">
-          <span class="block text-xs uppercase tracking-wide text-gray-600">{{ field.label }}</span>
+          <span class="block text-xs uppercase tracking-wide text-muted">{{ field.label }}</span>
           <span class="mt-1 block min-w-48">{{ field }}</span>
         </label>
       {% endif %}
     {% endfor %}
 
     <button type="submit"
-            class="rounded bg-brand-700 px-3 py-1.5 text-sm font-semibold text-white">
+            class="rounded-sharp bg-signal px-3 py-1.5 text-sm font-semibold text-white">
       Run
     </button>
-    <a href="{{ base_url }}" class="px-1 py-1.5 text-sm text-gray-500 underline">Clear</a>
+    <a href="{{ base_url }}" class="px-1 py-1.5 text-sm text-muted underline">Clear</a>
   </div>
 
   {% comment %}
@@ -38,14 +38,14 @@
     back the original entries and the mirrors that cancelled them, which is the
     audit view somebody asks for on purpose.
   {% endcomment %}
-  <div class="mt-3 flex items-center gap-2 border-t border-gray-200 pt-3 text-sm">
+  <div class="mt-3 flex items-center gap-2 border-t border-rule pt-3 text-sm">
     {{ form.include_cancelled }}
     <label for="{{ form.include_cancelled.id_for_label }}" class="cursor-pointer">
       Include cancelled documents
-      <span class="text-gray-500">— reversed entries and their mirrors. They net to zero.</span>
+      <span class="text-muted">— reversed entries and their mirrors. They net to zero.</span>
     </label>
     {% if criteria.include_cancelled %}
-      <span class="ml-auto text-xs font-medium text-cancelled">Audit view is on</span>
+      <span class="ml-auto text-xs font-medium text-alarm">Audit view is on</span>
     {% endif %}
   </div>
 </form>

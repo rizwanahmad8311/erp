@@ -28,37 +28,37 @@
   <div class="mb-3 flex flex-wrap items-baseline justify-between gap-2">
     <div>
       <h1 class="text-xl font-semibold">Recovery</h1>
-      <p class="text-sm text-gray-600">
+      <p class="text-sm text-muted">
         {{ row_count }} shop{{ row_count|pluralize }} with something on account,
         as at {{ as_of|date:"d M Y" }}.
         Every figure is aggregated from the ledger (CLAUDE.md §6).
       </p>
     </div>
     <div class="flex items-center gap-3 text-sm">
-      <a href="{% url 'payments:cheques' %}" class="text-brand-700 underline">Cheques in hand</a>
-      <a href="{% url 'payments:list' %}" class="text-brand-700 underline">All payments</a>
+      <a href="{% url 'payments:cheques' %}" class="text-signal underline">Cheques in hand</a>
+      <a href="{% url 'payments:list' %}" class="text-signal underline">All payments</a>
       <a href="{% url 'payments:create' %}"
-         class="rounded bg-brand-700 px-3 py-2 text-sm font-semibold text-white">New payment</a>
+         class="rounded-sharp bg-signal px-3 py-2 text-sm font-semibold text-white">New payment</a>
     </div>
   </div>
 
   {# ------------------------------------------------------------- filters #}
   <form method="get"
-        class="no-print mb-4 flex flex-wrap items-end gap-2 rounded border border-gray-200 bg-gray-50 p-3"
+        class="no-print mb-4 flex flex-wrap items-end gap-2 rounded-sharp border border-rule bg-paper p-3"
         hx-get="{% url 'payments:recovery-rows' %}"
         hx-target="#sheet"
         hx-swap="outerHTML"
         hx-trigger="change, keyup changed delay:300ms from:input[type=search], submit">
     {% for field in filters %}
-      <label class="block text-xs uppercase tracking-wide text-gray-600">
+      <label class="block text-xs uppercase tracking-wide text-muted">
         {{ field.label }}
         {{ field }}
       </label>
     {% endfor %}
-    <button type="submit" class="rounded border border-gray-300 bg-white px-3 py-1.5 text-sm">
+    <button type="submit" class="rounded-sharp border border-rule bg-white px-3 py-1.5 text-sm">
       Apply
     </button>
-    <a href="{% url 'payments:recovery' %}" class="px-2 py-1.5 text-sm text-gray-500 underline">
+    <a href="{% url 'payments:recovery' %}" class="px-2 py-1.5 text-sm text-muted underline">
       Clear
     </a>
   </form>

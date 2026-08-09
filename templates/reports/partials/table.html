@@ -6,26 +6,32 @@
   the same function the ReportLab renderer calls — so a figure cannot read one
   way in the browser and another on the printout.
 
-  Three rules the markup carries:
+  Four rules the markup carries:
 
+  * `.table` is the component in static/src/css/app.css: 32px rows (26px on
+    compact), hairline rules, a sticky header, and a 4% signal wash under the
+    cursor. **Zebra is off** — the rules already separate the rows, and a tint
+    on every other one competes with the two tints that mean something;
   * numeric columns get `.amount` (tabular figures, right-aligned, mono), which
     is the screen half of "a column of figures adds up by eye";
   * a row that references a document links to it, on the one column that
     carries the code;
-  * a cancelled document is struck through, never hidden (CLAUDE.md §5). It
-    contributes nothing to the totals either way, because the ledger's reversing
-    entries already took it back out.
+  * a cancelled document is struck through and rust, never hidden
+    (CLAUDE.md §5). It contributes nothing to the totals either way, because
+    the ledger's reversing entries already took it back out.
 
   `thead` repeats across printed pages via @media print in
-  static/src/css/app.css — the browser's twin of the PDF's repeatRows=1.
+  static/src/css/app.css — the browser's twin of the PDF's repeatRows=1 — and
+  the sticky positioning is dropped there, because a header pinned to the
+  viewport prints as a header floating over the rows.
 {% endcomment %}
 
 <div class="-mx-4 overflow-x-auto px-4">
-  <table class="w-full border-collapse text-sm">
+  <table class="table">
     <thead>
-      <tr class="border-b border-gray-300 text-left text-xs uppercase tracking-wide text-gray-600">
+      <tr>
         {% for column in columns %}
-          <th class="py-2 pr-2 {% if column.is_numeric %}text-right{% endif %} whitespace-nowrap">
+          <th scope="col" class="{% if column.is_numeric %}text-right{% endif %}">
             {{ column.label }}
           </th>
         {% endfor %}
@@ -34,17 +40,16 @@
 
     <tbody>
       {% for entry in rows %}
-        <tr class="border-b border-gray-100
-                   {% if entry.row.emphasis == 'heading' %}bg-gray-100 font-semibold{% endif %}
-                   {% if entry.row.emphasis == 'subtotal' or entry.row.emphasis == 'total' %}border-t border-gray-300 bg-gray-50 font-medium{% endif %}
-                   {% if entry.row.emphasis == 'opening' %}bg-gray-50 italic text-gray-600{% endif %}
-                   {% if entry.row.is_cancelled %}text-gray-400{% endif %}">
+        <tr class="{% if entry.row.emphasis == 'heading' %}font-semibold{% endif %}
+                   {% if entry.row.emphasis == 'subtotal' or entry.row.emphasis == 'total' %}border-t border-rule font-medium{% endif %}
+                   {% if entry.row.emphasis == 'opening' %}italic text-muted{% endif %}
+                   {% if entry.row.is_cancelled %}is-cancelled{% endif %}">
           {% for cell in entry.cells %}
-            <td class="py-1.5 pr-2 {{ cell.column.css_class }}
-                       {% if cell.alarm %}text-cancelled font-medium{% endif %}
+            <td class="{{ cell.column.css_class }}
+                       {% if cell.alarm %}text-alarm font-medium{% endif %}
                        {% if entry.row.is_cancelled %}line-through{% endif %}">
               {% if cell.url %}
-                <a href="{{ cell.url }}" class="text-brand-700 underline">{{ cell.text }}</a>
+                <a href="{{ cell.url }}" class="text-signal underline underline-offset-2">{{ cell.text }}</a>
               {% else %}
                 {{ cell.text }}
               {% endif %}
@@ -52,9 +57,17 @@
           {% endfor %}
         </tr>
       {% empty %}
+        {% comment %}
+          An empty state names the next action. "No records found" tells
+          somebody already looking at an empty table the one thing they knew;
+          what they actually need is which control to reach for, and this
+          report's filters are the only thing between them and rows.
+        {% endcomment %}
         <tr>
-          <td colspan="{{ columns|length }}" class="py-6 text-center text-sm text-gray-500">
-            Nothing on the ledger matched this report.
+          <td colspan="{{ columns|length }}" class="empty">
+            Nothing on the ledger falls in this period.
+            <a href="{{ request.path }}" class="empty-action">Clear the filters</a>
+            or widen the date range above.
           </td>
         </tr>
       {% endfor %}
@@ -69,9 +82,9 @@
         says which it is.
       {% endcomment %}
       <tfoot class="print-keep-together">
-        <tr class="border-t-2 border-gray-800 font-semibold">
+        <tr class="border-t-2 border-ink font-semibold">
           {% for cell in total_cells %}
-            <td class="py-2 pr-2 {{ cell.column.css_class }}">{{ cell.text }}</td>
+            <td class="{{ cell.column.css_class }}">{{ cell.text }}</td>
           {% endfor %}
         </tr>
       </tfoot>

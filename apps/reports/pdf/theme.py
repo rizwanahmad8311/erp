@@ -6,10 +6,16 @@ run time because the CSS is the source of truth and it is compiled ahead of
 time — a converter here would be a second implementation of a colour space that
 nobody would notice drifting.
 
-    --color-brand-700  oklch(0.42 0.14 250)  ->  #004e95
-    --color-posted     oklch(0.55 0.14 150)  ->  #1c8742
-    --color-draft      oklch(0.65 0.12 85)   ->  #b18827
-    --color-cancelled  oklch(0.55 0.16 25)   ->  #bd413f   <- the alarm colour
+    --color-ink      #1a1d21
+    --color-muted    #6e7178
+    --color-rule     #dddcd6
+    --color-paper    #fbfbf9
+    --color-signal   #0b5d51   <- deep pine: primary actions, posted state
+    --color-alarm    #a3341f   <- rust: cancelled documents, reversing entries
+
+Six colours and no more. Rust is reserved for reversals and cancellations, on
+paper for the same reason it is on screen: an accountant scanning a printed
+ledger has to find the reversals without reading every line.
 
 Anything that changes in the CSS changes here too, and
 ``tests/test_pdf.py::TestTheme`` keeps the two lists the same length.
@@ -29,18 +35,26 @@ from .fonts import fonts
 # ---------------------------------------------------------------------------
 # Colour
 # ---------------------------------------------------------------------------
-BRAND = colors.HexColor("#004e95")
-POSTED = colors.HexColor("#1c8742")
-DRAFT = colors.HexColor("#b18827")
-#: The alarm colour. Overdue money, an out-of-balance posting, and the CANCELLED
-#: watermark.
-ALARM = colors.HexColor("#bd413f")
+#: Deep pine. Primary actions on screen; a posted document on paper.
+SIGNAL = colors.HexColor("#0b5d51")
+#: Rust. Cancelled documents, reversing entries, overdue money, an
+#: out-of-balance posting, and the CANCELLED watermark. Nothing else.
+ALARM = colors.HexColor("#a3341f")
 
-INK = colors.HexColor("#111827")
-MUTED = colors.HexColor("#6b7280")
-RULE = colors.HexColor("#d1d5db")
-HAIRLINE = colors.HexColor("#e5e7eb")
-BAND = colors.HexColor("#f3f4f6")
+INK = colors.HexColor("#1a1d21")
+MUTED = colors.HexColor("#6e7178")
+RULE = colors.HexColor("#dddcd6")
+PAPER = colors.HexColor("#fbfbf9")
+
+#: Kept as aliases so the block renderers do not all have to change at once.
+#: There is no separate brand or draft colour any more: a draft is *outlined* on
+#: screen because it has written nothing to any ledger, and the printed
+#: equivalent of an outline is muted ink.
+BRAND = SIGNAL
+POSTED = SIGNAL
+DRAFT = MUTED
+HAIRLINE = RULE
+BAND = PAPER
 
 #: What a status badge is printed in, matching ``|doc_status`` on screen.
 STATUS_COLOURS = {"DRAFT": DRAFT, "POSTED": POSTED, "CANCELLED": ALARM}

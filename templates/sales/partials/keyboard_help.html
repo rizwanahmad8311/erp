@@ -7,16 +7,16 @@
   the point of this screen.
 {% endcomment %}
 
-<details class="no-print mb-3 rounded border border-gray-200 bg-gray-50 text-sm" open>
-  <summary class="cursor-pointer px-3 py-1.5 text-xs font-semibold uppercase tracking-wide text-gray-600">
+<details class="no-print mb-3 rounded-sharp border border-rule bg-paper text-sm" open>
+  <summary class="cursor-pointer px-3 py-1.5 text-xs font-semibold uppercase tracking-wide text-muted">
     Keyboard
   </summary>
   <ol class="flex flex-wrap gap-x-6 gap-y-1 px-3 pb-2">
     {% for step, field, hint in tab_order %}
       <li class="flex items-baseline gap-1.5">
-        <span class="rounded bg-gray-200 px-1.5 text-xs font-mono">{{ step }}</span>
+        <span class="rounded-sharp bg-rule px-1.5 text-xs font-mono">{{ step }}</span>
         <span class="font-medium">{{ field }}</span>
-        <span class="text-xs text-gray-500">{{ hint }}</span>
+        <span class="text-xs text-muted">{{ hint }}</span>
       </li>
     {% endfor %}
   </ol>

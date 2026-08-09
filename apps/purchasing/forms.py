@@ -23,12 +23,13 @@ from apps.masters.models import Item, Vendor
 
 from .models import PurchaseInvoice, PurchaseReturn
 
-#: Tailwind classes shared by every input on these screens. Kept in one place so
-#: the entry grid does not drift row by row.
-INPUT_CLASS = (
-    "w-full rounded border border-gray-300 px-2 py-1.5 text-sm "
-    "focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500"
-)
+#: Shared by every input on these screens. Kept in one place so the entry grid
+#: does not drift row by row.
+#:
+#: ``.field`` is the component class in static/src/css/app.css: 32px high, 3px
+#: radius, signal-coloured focus ring — the same height as a table row, so an
+#: input sitting in the grid does not shift the rows around it by a pixel.
+INPUT_CLASS = "field"
 AMOUNT_INPUT_CLASS = f"{INPUT_CLASS} amount"
 
 

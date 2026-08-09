@@ -13,34 +13,34 @@
     {% csrf_token %}
 
     {% if form.non_field_errors %}
-      <p class="mb-3 rounded border border-cancelled/40 bg-cancelled/10 px-2 py-1 text-sm text-cancelled">
+      <p class="mb-3 rounded-sharp border border-alarm/40 bg-alarm/10 px-2 py-1 text-sm text-alarm">
         {{ form.non_field_errors|join:" " }}
       </p>
     {% endif %}
 
     <div class="grid gap-3 md:grid-cols-2">
       {% for field in form %}
-        <label class="block text-xs uppercase tracking-wide text-gray-600
+        <label class="block text-xs uppercase tracking-wide text-muted
                       {% if field.name == 'remarks' %}md:col-span-2{% endif %}">
           {{ field.label }}
           {{ field }}
           {% if field.help_text %}
-            <span class="block normal-case text-xs text-gray-500">{{ field.help_text }}</span>
+            <span class="block normal-case text-xs text-muted">{{ field.help_text }}</span>
           {% endif %}
           {% if field.errors %}
-            <span class="block normal-case text-xs text-cancelled">{{ field.errors|join:" " }}</span>
+            <span class="block normal-case text-xs text-alarm">{{ field.errors|join:" " }}</span>
           {% endif %}
         </label>
       {% endfor %}
     </div>
 
     <div class="mt-4 flex items-center gap-2">
-      <button type="submit"
-              class="rounded bg-brand-700 px-4 py-2 text-sm font-semibold text-white">
+      <button type="submit" data-action="save"
+              class="btn btn-signal">
         Start entering lines
       </button>
       <a href="{% url 'purchasing:list' slug=kind.slug %}"
-         class="rounded border border-gray-300 px-3 py-2 text-sm">Cancel</a>
+         class="rounded-sharp border border-rule px-3 py-2 text-sm">Cancel</a>
     </div>
   </form>
 {% endblock %}

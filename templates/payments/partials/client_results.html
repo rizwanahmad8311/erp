@@ -17,13 +17,13 @@
                 data-active="{% if forloop.first %}true{% else %}false{% endif %}"
                 data-client-id="{{ hit.client.pk }}"
                 data-client-label="{{ hit.client.code }} — {{ hit.client.name }}"
-                class="flex w-full items-baseline justify-between gap-3 px-2 py-1.5 text-left text-sm hover:bg-brand-50 {% if forloop.first %}bg-brand-50{% endif %}">
+                class="flex w-full items-baseline justify-between gap-3 px-2 py-1.5 text-left text-sm hover:bg-signal/5 {% if forloop.first %}bg-signal/5{% endif %}">
           <span>
-            <span class="font-mono text-xs text-gray-500">{{ hit.client.code }}</span>
+            <span class="font-mono text-xs text-muted">{{ hit.client.code }}</span>
             {{ hit.client.name }}
-            {% if hit.client.phone %}<span class="text-xs text-gray-400">{{ hit.client.phone }}</span>{% endif %}
+            {% if hit.client.phone %}<span class="text-xs text-muted">{{ hit.client.phone }}</span>{% endif %}
           </span>
-          <span class="amount whitespace-nowrap text-xs {% if hit.outstanding_paisa > 0 %}text-cancelled{% else %}text-gray-500{% endif %}">
+          <span class="amount whitespace-nowrap text-xs {% if hit.outstanding_paisa > 0 %}text-alarm{% else %}text-muted{% endif %}">
             {{ hit.outstanding_paisa|money }}
           </span>
         </button>
@@ -31,5 +31,5 @@
     {% endfor %}
   </ul>
 {% elif q %}
-  <p class="px-2 py-1.5 text-sm text-gray-500">No client matches “{{ q }}”.</p>
+  <p class="px-2 py-1.5 text-sm text-muted">No client matches “{{ q }}”.</p>
 {% endif %}

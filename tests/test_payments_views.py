@@ -163,9 +163,14 @@ class TestWorkspace:
         assert response.context["total_overdue_paisa"] == to_paisa("5000")
 
     def test_overdue_money_is_in_the_alarm_colour(self, staff_client, shop, overdue):
-        """`text-cancelled` is this project's alarm colour — see static/src/css."""
+        """`text-alarm` is the rust in static/src/css/app.css (--color-alarm).
+
+        Rust is reserved for reversals, cancellations and overdue money, which
+        is what makes it findable by scanning. If it starts meaning "required
+        field" too, this assertion still passes and the screen stops working.
+        """
         body = staff_client.get(as_of(reverse("payments:recovery"))).content.decode()
-        assert "text-cancelled" in body
+        assert "text-alarm" in body
 
     def test_the_route_filter_narrows_it(self, staff_client, shop, overdue, db):
         elsewhere = Route.objects.create(code="R-99", name="Nowhere")

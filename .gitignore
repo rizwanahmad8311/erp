@@ -39,6 +39,7 @@ staticfiles/
 # The Tailwind standalone binary is fetched per-machine in dev, never committed.
 bin/tailwindcss
 bin/tailwindcss.exe
+bin/tailwindcss-macos-arm64
 
 # --- editors / os --------------------------------------------------------
 .DS_Store

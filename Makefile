@@ -7,6 +7,7 @@ RUN := $(DC) exec web
 RUN_ONESHOT := $(DC) run --rm web
 
 TAILWIND_BIN := bin/tailwindcss
+TAILWIND_MAC := bin/tailwindcss-macos-arm64
 TAILWIND_URL := https://github.com/tailwindlabs/tailwindcss/releases/latest/download
 
 .DEFAULT_GOAL := help
@@ -87,6 +88,26 @@ js:  ## Copy JS and fonts from static/src into static/dist (no bundler)
 
 css-watch:  ## Recompile CSS on change
 	$(RUN) ./$(TAILWIND_BIN) -i static/src/css/app.css -o static/dist/app.css --watch
+
+# The same build, run natively on the Mac instead of through the container.
+# Identical input and identical output — the standalone binary has no
+# dependencies and no config beyond the @source lines in app.css — so which one
+# you use is a matter of whether the container happens to be up.
+#
+# Neither exists on the Windows box. Production runs `collectstatic`, which
+# copies the committed static/dist, and builds nothing.
+tailwind-mac:  ## Fetch the macOS Tailwind CLI onto the host (dev only)
+	@mkdir -p bin
+	curl -sSLo $(TAILWIND_MAC) $(TAILWIND_URL)/tailwindcss-macos-arm64
+	@chmod +x $(TAILWIND_MAC)
+
+css-mac: tailwind-mac  ## Compile CSS + copy assets on the Mac, no Docker
+	@mkdir -p static/dist/js static/dist/fonts
+	cp -f static/src/js/*.js static/dist/js/
+	cp -f static/src/js/vendor/*.js static/dist/js/
+	cp -f static/src/fonts/*.woff2 static/dist/fonts/
+	./$(TAILWIND_MAC) -i static/src/css/app.css -o static/dist/app.css --minify
+	@echo "Rebuilt static/dist — commit it."
 
 clean:  ## Remove caches and collectstatic output
 	$(RUN) sh -c 'rm -rf staticfiles .pytest_cache .ruff_cache && \

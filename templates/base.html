@@ -1,36 +1,84 @@
-{% load static %}<!doctype html>
-<html lang="en">
+{% load static core_tags %}<!doctype html>
+{% comment %}
+  data-density is written by the server, from UserProfile.density via
+  apps.accounts.context_processors.ui. It is on <html> rather than <body> and it
+  is in the markup rather than applied by JS, so the very first paint is already
+  at the right density — a class toggled after load reflows every screen on
+  every navigation, which on a screen somebody uses for eight hours is worse
+  than not offering the setting.
+{% endcomment %}
+<html lang="en" data-density="{{ density }}">
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>{% block title %}Distribution ERP{% endblock %}</title>
 
     {% comment %} Every asset is served from static/dist by WhiteNoise. No CDN, ever —
-       the production PC has no internet. See CLAUDE.md. {% endcomment %}
+       the production PC has no internet. See CLAUDE.md §7.
+
+       The fonts are @font-face'd inside app.css from static/dist/fonts, so they
+       are one stylesheet away rather than a separate <link> to anywhere. {% endcomment %}
     <link rel="stylesheet" href="{% static 'app.css' %}">
     {% block extra_css %}{% endblock %}
   </head>
-  <body class="bg-white text-gray-900 antialiased">
-    <header class="no-print border-b border-gray-200">
-      {% comment %} Modules the signed-in user cannot open are not drawn — see
-         templates/partials/nav.html. A block, so a screen that wants no
-         chrome at all can still say so. {% endcomment %}
-      {% block header %}{% include "partials/nav.html" %}{% endblock %}
-    </header>
+  {% comment %}
+    The keyboard map rides on a data attribute rather than in a
+    <script type="application/json"> block, because the entry screens are
+    guarded by tests that allow **no** inline script content at all — see
+    tests/test_sales_views.py::TestTheClientNeverComputesMoney. That guard is
+    about money never being computed in the browser, and a JSON keyboard map
+    would not have broken the rule; but the guard is only worth having while it
+    is absolute, and an attribute costs nothing.
 
-    <main class="mx-auto max-w-7xl px-4 py-6">
-      {% if messages %}
-        <ul class="no-print mb-4">
-          {% for message in messages %}
-            <li class="rounded border px-3 py-2 text-sm">{{ message }}</li>
-          {% endfor %}
-        </ul>
-      {% endif %}
+    Serialised from apps.core.shortcuts.SHORTCUTS — the same tuple /shortcuts
+    renders — so a key that is documented and a key that works are the same key
+    by construction.
+  {% endcomment %}
+  <body class="bg-paper text-ink antialiased"
+        data-shortcuts="{{ shortcut_keys_json }}">
 
-      {% block content %}{% endblock %}
-    </main>
+    {% comment %} Keyboard-only operators land here first. Hidden until focused. {% endcomment %}
+    <a href="#content"
+       class="no-print sr-only focus:not-sr-only focus:absolute focus:left-2 focus:top-2 focus:z-50
+              focus:bg-signal focus:px-3 focus:py-2 focus:text-sm focus:text-white">
+      Skip to content
+    </a>
 
-    <script src="{% static 'js/app.js' %}"></script>
+    <div class="min-h-screen lg:grid lg:grid-cols-[13rem_1fr]">
+
+      {% comment %} The module sidebar. A <header> on tablet, a column on a desktop. {% endcomment %}
+      <header class="no-print border-b border-rule lg:border-b-0 lg:border-r">
+        {% block header %}{% include "partials/nav.html" %}{% endblock %}
+      </header>
+
+      <div class="min-w-0">
+        <main id="content" class="mx-auto max-w-7xl px-4 py-5">
+          {% if messages %}
+            <ul class="no-print mb-4 space-y-1">
+              {% for message in messages %}
+                {% comment %}
+                  An error message is rust; everything else is quiet. Rust is
+                  reserved for reversals and things that went wrong, and a
+                  success banner in the alarm colour would spend the one signal
+                  the ledger screens depend on.
+                {% endcomment %}
+                <li class="rounded-sharp border px-3 py-1.5 text-sm
+                           {% if message.tags == 'error' %}border-alarm text-alarm{% else %}border-rule text-ink{% endif %}">
+                  {{ message }}
+                </li>
+              {% endfor %}
+            </ul>
+          {% endif %}
+
+          {% block content %}{% endblock %}
+        </main>
+      </div>
+    </div>
+
+    {% comment %} Vendored, versioned, committed. See static/src/js/vendor/README.md. {% endcomment %}
+    <script src="{% static 'js/htmx-2.0.4.min.js' %}" defer></script>
+    <script src="{% static 'js/alpine-3.15.12.min.js' %}" defer></script>
+    <script src="{% static 'js/app.js' %}" defer></script>
     {% block extra_js %}{% endblock %}
   </body>
 </html>

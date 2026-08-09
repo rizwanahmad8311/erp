@@ -8,39 +8,39 @@
   Every figure below was computed by apps.sales.services on the server.
 {% endcomment %}
 
-<div id="grid" hx-target="#grid" hx-swap="outerHTML">
+<div id="grid" data-entry-grid hx-target="#grid" hx-swap="outerHTML">
 
   {# ---------------------------------------------------------------- lines #}
-  <table class="w-full border-collapse text-sm">
+  <table class="table">
     <thead>
-      <tr class="border-b border-gray-300 text-left text-xs uppercase tracking-wide text-gray-600">
-        <th class="py-2 pr-2">Item</th>
-        <th class="py-2 pr-2 text-right">Qty</th>
-        <th class="py-2 pr-2">Unit</th>
-        <th class="py-2 pr-2 text-right">Rate</th>
-        <th class="py-2 pr-2 text-right">Base qty</th>
-        <th class="py-2 pr-2 text-right">In stock</th>
-        <th class="py-2 pr-2 text-right">Discount</th>
-        <th class="py-2 pr-2 text-right">Tax</th>
-        <th class="py-2 pr-2 text-right">Amount</th>
-        <th class="py-2 w-8"></th>
+      <tr>
+        <th scope="col">Item</th>
+        <th scope="col" class="text-right">Qty</th>
+        <th scope="col">Unit</th>
+        <th scope="col" class="text-right">Rate</th>
+        <th scope="col" class="text-right">Base qty</th>
+        <th scope="col" class="text-right">In stock</th>
+        <th scope="col" class="text-right">Discount</th>
+        <th scope="col" class="text-right">Tax</th>
+        <th scope="col" class="text-right">Amount</th>
+        <th scope="col" class="w-8"></th>
       </tr>
     </thead>
 
     <tbody>
       {% for line in lines %}
-        <tr class="border-b border-gray-100">
-          <td class="py-1.5 pr-2">
-            <span class="font-mono text-xs text-gray-500">{{ line.item.code }}</span>
+        <tr>
+          <td>
+            <span class="font-mono text-xs text-muted">{{ line.item.code }}</span>
             {{ line.item.name }}
           </td>
-          <td class="amount py-1.5 pr-2">{{ line.qty_input|qty }}</td>
-          <td class="py-1.5 pr-2 text-xs uppercase">{{ line.get_unit_input_display }}</td>
-          <td class="amount py-1.5 pr-2">{{ line.entry_rate_paisa|money }}</td>
-          <td class="amount py-1.5 pr-2 text-gray-600">
+          <td class="amount">{{ line.qty_input|qty }}</td>
+          <td class="text-xs uppercase">{{ line.get_unit_input_display }}</td>
+          <td class="amount">{{ line.entry_rate_paisa|money }}</td>
+          <td class="amount text-muted">
             {{ line.qty_display }}
             {% if not line.rate_is_exact %}
-              <span class="cursor-help text-amber-600"
+              <span class="cursor-help text-muted"
                     title="The per-base-unit rate is rounded: it does not multiply back to the line amount. The amount is what was billed and what posts.">*</span>
             {% endif %}
           </td>
@@ -48,19 +48,26 @@
             Read from the stock ledger on every render — there is no
             stock_on_hand column anywhere and there must not be (CLAUDE.md §6).
           {% endcomment %}
-          <td class="amount py-1.5 pr-2 {% if line.is_short %}font-semibold text-cancelled{% else %}text-gray-600{% endif %}">
+          {% comment %}
+            Short stock is bold ink, not rust. Rust means "this was cancelled or
+            reversed" (and overdue money on the recovery screen), and it only
+            keeps working as a scanning cue while nothing else uses it — four
+            rust cells on an entry grid, none of them a reversal, is how that
+            gets spent. The "!" and the weight carry it instead.
+          {% endcomment %}
+          <td class="amount {% if line.is_short %}font-semibold text-ink{% else %}text-muted{% endif %}">
             {{ line.available_display }}
             {% if line.is_short %}
               <span title="This line is for more than is on hand. Posting will be refused unless the stock arrives first.">!</span>
             {% endif %}
           </td>
-          <td class="amount py-1.5 pr-2">{{ line.discount_paisa|money }}</td>
-          <td class="amount py-1.5 pr-2">{{ line.tax_paisa|money }}</td>
-          <td class="amount py-1.5 pr-2 font-medium">{{ line.amount_paisa|money }}</td>
-          <td class="py-1.5 text-right">
+          <td class="amount">{{ line.discount_paisa|money }}</td>
+          <td class="amount">{{ line.tax_paisa|money }}</td>
+          <td class="amount font-medium">{{ line.amount_paisa|money }}</td>
+          <td class="text-right">
             {% if document.is_editable %}
               <button type="button"
-                      class="text-cancelled hover:underline"
+                      class="text-muted hover:text-alarm hover:underline"
                       title="Remove this line"
                       hx-post="{% url 'sales:line-delete' slug=kind.slug pk=document.pk line_pk=line.pk %}"
                       hx-headers='{"X-CSRFToken": "{{ csrf_token }}"}'>&times;</button>
@@ -69,7 +76,7 @@
         </tr>
       {% empty %}
         <tr>
-          <td colspan="10" class="py-6 text-center text-sm text-gray-500">
+          <td colspan="10" class="empty">
             No lines yet. Start typing an item code or name below.
           </td>
         </tr>
@@ -79,13 +86,13 @@
 
   {# ------------------------------------------------------------ entry row #}
   {% if document.is_editable %}
-    <form class="no-print mt-3 rounded border border-gray-300 bg-gray-50 p-3"
+    <form class="no-print mt-3 rounded-sharp border border-rule bg-paper p-3"
           hx-post="{% url 'sales:line-add' slug=kind.slug pk=document.pk %}"
           hx-headers='{"X-CSRFToken": "{{ csrf_token }}"}'>
       {% csrf_token %}
 
       {% if line_form.non_field_errors %}
-        <p class="mb-2 rounded border border-cancelled/40 bg-cancelled/10 px-2 py-1 text-sm text-cancelled">
+        <p class="mb-2 rounded-sharp border border-alarm/40 bg-alarm/10 px-2 py-1 text-sm text-alarm">
           {{ line_form.non_field_errors|join:" " }}
         </p>
       {% endif %}
@@ -97,7 +104,7 @@
         browser is never told the numbers, only the finished HTML.
       {% endcomment %}
       <div id="line-preview"
-           class="mt-2 min-h-6 text-sm text-gray-600"
+           class="mt-2 min-h-6 text-sm text-muted"
            hx-post="{% url 'sales:line-preview' slug=kind.slug pk=document.pk %}"
            hx-trigger="change from:closest form, keyup changed delay:400ms from:closest form"
            hx-include="closest form"
@@ -108,10 +115,10 @@
 
       <div class="mt-2 flex items-center gap-3">
         <button type="submit" tabindex="60"
-                class="rounded bg-brand-700 px-3 py-1.5 text-sm font-medium text-white">
+                class="rounded-sharp bg-signal px-3 py-1.5 text-sm font-medium text-white">
           Add line <span class="opacity-70">(Enter)</span>
         </button>
-        <span class="text-xs text-gray-500">
+        <span class="text-xs text-muted">
           Rate is per the unit shown — per carton when the unit is CTN.
         </span>
       </div>

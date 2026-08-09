@@ -7,56 +7,56 @@
   <div class="mb-4 flex flex-wrap items-baseline justify-between gap-2">
     <h1 class="text-xl font-semibold">Receipts &amp; payments</h1>
     <div class="flex items-center gap-3 text-sm">
-      <a href="{% url 'payments:recovery' %}" class="text-brand-700 underline">Recovery</a>
-      <a href="{% url 'payments:cheques' %}" class="text-brand-700 underline">Cheques in hand</a>
-      <a href="{% url 'payments:create' %}"
-         class="rounded bg-brand-700 px-3 py-2 text-sm font-semibold text-white">New payment</a>
+      <a href="{% url 'payments:recovery' %}" class="text-signal underline">Recovery</a>
+      <a href="{% url 'payments:cheques' %}" class="text-signal underline">Cheques in hand</a>
+      <a href="{% url 'payments:create' %}" data-action="new"
+         class="btn btn-signal">New payment <span class="opacity-70">(Alt+N)</span></a>
     </div>
   </div>
 
   <form method="get" class="no-print mb-4 flex flex-wrap gap-2">
-    <input type="search" name="q" value="{{ query }}" autofocus
+    <input type="search" name="q" data-action="search" value="{{ query }}" autofocus
            placeholder="Code or cheque number"
-           class="rounded border border-gray-300 px-2 py-1.5 text-sm">
-    <select name="direction" class="rounded border border-gray-300 px-2 py-1.5 text-sm">
+           class="rounded-sharp border border-rule px-2 py-1.5 text-sm">
+    <select name="direction" class="rounded-sharp border border-rule px-2 py-1.5 text-sm">
       <option value="">Either way</option>
       {% for value, label in directions %}
         <option value="{{ value }}" {% if value == direction %}selected{% endif %}>{{ label }}</option>
       {% endfor %}
     </select>
-    <select name="mode" class="rounded border border-gray-300 px-2 py-1.5 text-sm">
+    <select name="mode" class="rounded-sharp border border-rule px-2 py-1.5 text-sm">
       <option value="">Any mode</option>
       {% for value, label in modes %}
         <option value="{{ value }}" {% if value == mode %}selected{% endif %}>{{ label }}</option>
       {% endfor %}
     </select>
-    <select name="status" class="rounded border border-gray-300 px-2 py-1.5 text-sm">
+    <select name="status" class="rounded-sharp border border-rule px-2 py-1.5 text-sm">
       <option value="">Any status</option>
       {% for value, label in statuses %}
         <option value="{{ value }}" {% if value == status %}selected{% endif %}>{{ label }}</option>
       {% endfor %}
     </select>
-    <button type="submit" class="rounded border border-gray-300 px-3 py-1.5 text-sm">Filter</button>
+    <button type="submit" class="rounded-sharp border border-rule px-3 py-1.5 text-sm">Filter</button>
   </form>
 
-  <table class="w-full border-collapse text-sm">
+  <table class="table">
     <thead>
-      <tr class="border-b border-gray-300 text-left text-xs uppercase tracking-wide text-gray-600">
-        <th class="py-2 pr-2">Code</th>
-        <th class="py-2 pr-2">Date</th>
-        <th class="py-2 pr-2">Party</th>
-        <th class="py-2 pr-2">Mode</th>
-        <th class="py-2 pr-2">Route</th>
-        <th class="py-2 pr-2">Collected by</th>
-        <th class="py-2 pr-2 text-right">Amount</th>
-        <th class="py-2 pr-2 text-right">On account</th>
-        <th class="py-2 pr-2">Cheque</th>
-        <th class="py-2">Status</th>
+      <tr>
+        <th scope="col">Code</th>
+        <th scope="col">Date</th>
+        <th scope="col">Party</th>
+        <th scope="col">Mode</th>
+        <th scope="col">Route</th>
+        <th scope="col">Collected by</th>
+        <th scope="col" class="text-right">Amount</th>
+        <th scope="col" class="text-right">On account</th>
+        <th scope="col">Cheque</th>
+        <th scope="col">Status</th>
       </tr>
     </thead>
     <tbody>
       {% for payment in payments %}
-        <tr class="border-b border-gray-100">
+        <tr>
           {% comment %}
             Every status, always. A cancelled receipt is never hidden and never
             deleted from this list (CLAUDE.md §5) — it is the correction
@@ -64,41 +64,52 @@
             through; what keeps it out of the figures is the ledger, where its
             two rows and their reversals net to zero.
           {% endcomment %}
-          <td class="py-1.5 pr-2 font-mono">
+          <td class="font-mono">
             <a href="{% url 'payments:detail' pk=payment.pk %}"
-               class="{% if payment.status == 'CANCELLED' %}text-gray-500{% else %}text-brand-700{% endif %} underline">{{ payment.code }}</a>
+               class="{% if payment.status == 'CANCELLED' %}text-muted{% else %}text-signal{% endif %} underline">{{ payment.code }}</a>
           </td>
-          <td class="py-1.5 pr-2 whitespace-nowrap">{{ payment.posting_date|date:"d M Y" }}</td>
-          <td class="py-1.5 pr-2">
+          <td class="whitespace-nowrap">{{ payment.posting_date|date:"d M Y" }}</td>
+          <td>
             {{ payment.party_name }}
-            <span class="text-xs text-gray-500">{{ payment.get_direction_display }}</span>
+            <span class="text-xs text-muted">{{ payment.get_direction_display }}</span>
           </td>
-          <td class="py-1.5 pr-2 text-xs uppercase">{{ payment.get_mode_display }}</td>
-          <td class="py-1.5 pr-2">{{ payment.route.code|default:"—" }}</td>
-          <td class="py-1.5 pr-2">{{ payment.collected_by.name|default:"—" }}</td>
-          <td class="amount py-1.5 pr-2 font-medium {% if payment.status == 'CANCELLED' %}line-through text-gray-400{% endif %}">{{ payment.amount_paisa|money }}</td>
-          <td class="amount py-1.5 pr-2 {% if payment.unallocated_paisa %}text-posted{% else %}text-gray-400{% endif %}">
+          <td class="text-xs uppercase">{{ payment.get_mode_display }}</td>
+          <td>{{ payment.route.code|default:"—" }}</td>
+          <td>{{ payment.collected_by.name|default:"—" }}</td>
+          <td class="amount font-medium {% if payment.status == 'CANCELLED' %}line-through text-muted{% endif %}">{{ payment.amount_paisa|money }}</td>
+          <td class="amount {% if payment.unallocated_paisa %}text-signal{% else %}text-muted{% endif %}">
             {{ payment.unallocated_paisa|money }}
           </td>
-          <td class="py-1.5 pr-2">
+          <td>
             {% if payment.is_cheque %}
               <span class="font-mono text-xs">{{ payment.cheque_no }}</span>
-              <span class="text-xs {% if payment.is_bounced %}font-semibold text-cancelled{% elif payment.is_cleared %}text-posted{% else %}text-gray-500{% endif %}">
+              <span class="text-xs {% if payment.is_bounced %}font-semibold text-alarm{% elif payment.is_cleared %}text-signal{% else %}text-muted{% endif %}">
                 {{ payment.cheque_status_label }}
               </span>
             {% else %}—{% endif %}
           </td>
-          <td class="py-1.5">{{ payment.status|doc_status }}</td>
+          <td>{{ payment.status|doc_status }}</td>
         </tr>
       {% empty %}
         <tr>
-          <td colspan="10" class="py-6 text-center text-sm text-gray-500">Nothing here yet.</td>
+          <td colspan="10" class="empty">
+            {% if query %}
+              No payment matches that search.
+              <a href="{% url 'payments:list' %}" class="empty-action">Clear the filters</a>
+            {% else %}
+              No payments recorded yet.
+              <a href="{% url 'payments:create' %}" class="empty-action">Record one</a>
+              — or go to
+              <a href="{% url 'payments:recovery' %}" class="empty-action">recovery</a>
+              to see who owes.
+            {% endif %}
+          </td>
         </tr>
       {% endfor %}
     </tbody>
   </table>
 
-  <p class="mt-4 text-xs text-gray-500">
+  <p class="mt-4 text-xs text-muted">
     "On account" is what a payment has not yet been applied to a bill — a normal state,
     and the figure the recovery sheet chases. Every balance here is aggregated from the
     ledger, never from a cached column (CLAUDE.md §6).

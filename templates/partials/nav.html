@@ -1,5 +1,5 @@
 {% comment %}
-  The module bar across the top of every screen.
+  The module sidebar.
 
   Each entry is behind the same permission the view itself checks, using
   Django's own `perms` (from django.contrib.auth.context_processors.auth — no
@@ -10,35 +10,113 @@
     {% if perms.sales.view_salesinvoice %}   here
     @module_required("sales.view_salesinvoice")   in apps/sales/views.py
 
+  An entire group disappears when its permissions do — a heading over an empty
+  list tells a booker there is a Purchases module they may not have.
+
+  The current section carries a 2px signal rule on its leading edge and nothing
+  else: no filled background, because "you are here" does not deserve a colour
+  weight equal to a posted document. `aria-current="page"` is what drives it, so
+  a screen reader is told the same thing the rule says.
+
   `.no-print` throughout — this is chrome, and a printed invoice does not carry
   a navigation bar.
 {% endcomment %}
 
-<nav class="no-print mx-auto flex max-w-7xl flex-wrap items-center gap-x-6 gap-y-1 px-4 py-2 text-sm">
-  {% if perms.sales.view_salesinvoice %}
-    <a href="{% url 'sales:list' slug='invoices' %}" class="hover:underline">Sales</a>
-  {% endif %}
-  {% if perms.purchasing.view_purchaseinvoice %}
-    <a href="{% url 'purchasing:list' slug='invoices' %}" class="hover:underline">Purchases</a>
-  {% endif %}
-  {% if perms.payments.view_payment %}
-    <a href="{% url 'payments:recovery' %}" class="hover:underline">Recovery</a>
-    <a href="{% url 'payments:list' %}" class="hover:underline">Payments</a>
-  {% endif %}
-  {% if perms.reports.view_reports %}
-    <a href="{% url 'reports:index' %}" class="hover:underline">Reports</a>
-  {% endif %}
+<nav class="no-print flex h-full flex-col gap-4 px-3 py-4 lg:sticky lg:top-0 lg:h-screen"
+     aria-label="Modules">
 
-  <span class="ml-auto flex items-center gap-3 text-gray-500">
-    {% if user.is_authenticated %}
-      <span title="{{ user.get_full_name|default:user.username }}">{{ user.username }}</span>
-      {% if perms.accounts.manage_users %}
-        <a href="{% url 'admin:auth_user_changelist' %}" class="hover:underline">Users</a>
-      {% endif %}
-      <a href="{% url 'admin:password_change' %}" class="hover:underline">Password</a>
-      <a href="{% url 'admin:logout' %}" class="hover:underline">Sign out</a>
-    {% else %}
-      <a href="{% url 'admin:login' %}" class="hover:underline">Sign in</a>
+  {% comment %}
+    There was a "Distribution ERP" wordmark here. It is gone on purpose.
+
+    It was decoration: a brand label at the top of the sidebar of an internal
+    tool, on a machine where the only thing anyone ever opens is this. The
+    print stylesheet already makes the argument against it — the letterhead is
+    hidden on screen "because the browser already shows which system you are
+    in" — and the same reasoning applies a foot higher up. It cost a row of
+    sidebar and told nobody anything.
+  {% endcomment %}
+
+  <div class="flex flex-1 flex-wrap gap-x-6 gap-y-4 lg:flex-col lg:flex-nowrap lg:gap-y-4">
+
+    {% if perms.sales.view_salesinvoice %}
+      <div>
+        <p class="nav-group-label px-3 pb-1">Sales</p>
+        <a href="{% url 'sales:list' slug='invoices' %}" class="nav-item"
+           {% if request.resolver_match.app_name == 'sales' %}aria-current="page"{% endif %}>
+          Invoices
+        </a>
+      </div>
     {% endif %}
-  </span>
+
+    {% if perms.purchasing.view_purchaseinvoice %}
+      <div>
+        <p class="nav-group-label px-3 pb-1">Purchasing</p>
+        <a href="{% url 'purchasing:list' slug='invoices' %}" class="nav-item"
+           {% if request.resolver_match.app_name == 'purchasing' %}aria-current="page"{% endif %}>
+          Bills
+        </a>
+      </div>
+    {% endif %}
+
+    {% if perms.payments.view_payment %}
+      <div>
+        <p class="nav-group-label px-3 pb-1">Money</p>
+        <a href="{% url 'payments:recovery' %}" class="nav-item"
+           {% if request.resolver_match.url_name == 'recovery' %}aria-current="page"{% endif %}>
+          Recovery
+        </a>
+        <a href="{% url 'payments:list' %}" class="nav-item"
+           {% if request.resolver_match.app_name == 'payments' and request.resolver_match.url_name != 'recovery' %}aria-current="page"{% endif %}>
+          Payments
+        </a>
+      </div>
+    {% endif %}
+
+    {% if perms.reports.view_reports %}
+      <div>
+        <p class="nav-group-label px-3 pb-1">Reports</p>
+        <a href="{% url 'reports:index' %}" class="nav-item"
+           {% if request.resolver_match.app_name == 'reports' %}aria-current="page"{% endif %}>
+          All reports
+        </a>
+      </div>
+    {% endif %}
+  </div>
+
+  {# ------------------------------------------------------------- the login #}
+  <div class="border-t border-rule pt-3 text-xs text-muted">
+    {% if user.is_authenticated %}
+      <p class="px-3 pb-2 text-ink" title="{{ user.get_full_name|default:user.username }}">
+        {{ user.username }}
+      </p>
+
+      {% comment %}
+        Density. A form rather than a link because it writes a stored setting,
+        and a GET that changes state is changed by a prefetch or the back
+        button. `next` comes back to where you were; the view refuses anything
+        that is not a local path.
+      {% endcomment %}
+      <form method="post" action="{% url 'accounts:set-density' %}" class="px-3 pb-2">
+        {% csrf_token %}
+        <input type="hidden" name="next" value="{{ request.get_full_path }}">
+        <input type="hidden" name="density"
+               value="{% if density == 'compact' %}comfortable{% else %}compact{% endif %}">
+        <button type="submit" class="underline underline-offset-2 hover:text-ink">
+          {% if density == 'compact' %}Comfortable rows{% else %}Compact rows{% endif %}
+        </button>
+      </form>
+
+      <a href="{% url 'core:shortcuts' %}" class="nav-item text-xs text-muted"
+         {% if request.resolver_match.url_name == 'shortcuts' %}aria-current="page"{% endif %}>
+        Keyboard shortcuts
+      </a>
+      {% if perms.accounts.manage_users %}
+        <a href="{% url 'admin:auth_user_changelist' %}" class="nav-item text-xs text-muted">Users</a>
+      {% endif %}
+      <a href="{% url 'admin:password_change' %}" class="nav-item text-xs text-muted">Password</a>
+      <a href="{% url 'admin:logout' %}" class="nav-item text-xs text-muted">Sign out</a>
+    {% else %}
+      <a href="{% url 'admin:login' %}" class="nav-item text-xs text-muted">Sign in</a>
+    {% endif %}
+  </div>
 </nav>

@@ -14,11 +14,16 @@ from apps.core.enums import DocumentStatus
 
 register = template.Library()
 
-#: Tailwind tokens defined in static/src/css/app.css.
+#: Chip classes defined in static/src/css/app.css.
+#:
+#: Draft is **outlined**, not filled: a draft has written nothing to any ledger,
+#: and a solid colour implies it has. Posted is signal, cancelled is alarm —
+#: and cancelled is one of the very few places rust appears at all, so that a
+#: reversal is findable by scanning rather than by reading.
 _STATUS_CLASSES = {
-    DocumentStatus.DRAFT: "bg-draft/10 text-draft border-draft/30",
-    DocumentStatus.POSTED: "bg-posted/10 text-posted border-posted/30",
-    DocumentStatus.CANCELLED: "bg-cancelled/10 text-cancelled border-cancelled/30",
+    DocumentStatus.DRAFT: "chip chip-draft",
+    DocumentStatus.POSTED: "chip chip-posted",
+    DocumentStatus.CANCELLED: "chip chip-cancelled",
 }
 
 
@@ -72,10 +77,5 @@ def doc_status(status) -> str:
         label = DocumentStatus(value).label
     except ValueError:
         label = value or "—"
-    css = _STATUS_CLASSES.get(value, "bg-gray-100 text-gray-700 border-gray-300")
-    return format_html(
-        '<span class="inline-flex items-center rounded border px-2 py-0.5 '
-        'text-xs font-medium uppercase tracking-wide {}">{}</span>',
-        css,
-        label,
-    )
+    css = _STATUS_CLASSES.get(value, "chip chip-draft")
+    return format_html('<span class="{}">{}</span>', css, label)

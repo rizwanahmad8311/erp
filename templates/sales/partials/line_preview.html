@@ -8,11 +8,11 @@
 {% endcomment %}
 
 {% if error %}
-  <span class="text-cancelled">{{ error }}</span>
+  <span class="text-alarm">{{ error }}</span>
 {% elif preview %}
-  <span class="text-gray-500">=</span>
+  <span class="text-muted">=</span>
   <span class="amount font-medium">{{ preview.amounts.amount_paisa|money }}</span>
-  <span class="text-gray-500">
+  <span class="text-muted">
     for {{ preview.qty_display }}
     &middot; {{ preview.amounts.rate_paisa|money }} per base unit
     {% if preview.amounts.discount_paisa %}
@@ -25,15 +25,15 @@
   </span>
 
   {% if preview.is_short %}
-    <span class="ml-1 font-medium text-cancelled">
+    <span class="ml-1 font-medium text-alarm">
       only {{ preview.available_display }} in stock — posting will be refused
     </span>
   {% else %}
-    <span class="ml-1 text-xs text-gray-400">in stock: {{ preview.available_display }}</span>
+    <span class="ml-1 text-xs text-muted">in stock: {{ preview.available_display }}</span>
   {% endif %}
 
   {% if not preview.amounts.rate_is_exact %}
-    <span class="ml-1 text-amber-600"
+    <span class="ml-1 text-muted"
           title="The per-base-unit rate is rounded. The line amount above is what was billed and what will post.">
       * rate rounded &mdash; the amount above is what posts
     </span>

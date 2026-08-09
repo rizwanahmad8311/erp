@@ -105,6 +105,9 @@ TEMPLATES = [
                 # The company letterhead, for the @media print path. Lazy, so a
                 # page that never prints a header never queries for one.
                 "apps.reports.context_processors.company",
+                # Density, onto <html> before the first paint. Lazy for the same
+                # reason — an htmx partial never asks for it.
+                "apps.accounts.context_processors.ui",
             ],
         },
     },

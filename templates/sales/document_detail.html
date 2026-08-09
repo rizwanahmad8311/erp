@@ -29,7 +29,7 @@
       <h1 class="text-xl font-semibold">
         {{ kind.title }} <span class="font-mono">{{ document.code }}</span>
       </h1>
-      <p class="text-sm text-gray-600">
+      <p class="text-sm text-muted">
         {{ document.client.name }}
         <span class="font-mono text-xs">({{ document.client.code }})</span>
         {% if document.client.phone %}&middot; {{ document.client.phone }}{% endif %}
@@ -47,7 +47,7 @@
       {{ document.status|doc_status }}
       {% include "core/partials/print_actions.html" %}
       <a href="{% url 'sales:list' slug=kind.slug %}"
-         class="text-sm text-brand-700 underline">All {{ kind.title|lower }}s</a>
+         class="text-sm text-signal underline">All {{ kind.title|lower }}s</a>
     </div>
   </div>
 

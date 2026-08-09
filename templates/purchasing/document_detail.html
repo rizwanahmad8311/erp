@@ -24,7 +24,7 @@
       <h1 class="text-xl font-semibold">
         {{ kind.title }} <span class="font-mono">{{ document.code }}</span>
       </h1>
-      <p class="text-sm text-gray-600">
+      <p class="text-sm text-muted">
         {{ document.vendor.name }} &middot; {{ document.warehouse.name }} &middot;
         {{ document.posting_date|date:"d M Y" }}
         {% if document.vendor_bill_no %}
@@ -39,7 +39,7 @@
       {{ document.status|doc_status }}
       {% include "core/partials/print_actions.html" %}
       <a href="{% url 'purchasing:list' slug=kind.slug %}"
-         class="text-sm text-brand-700 underline">All {{ kind.title|lower }}s</a>
+         class="text-sm text-signal underline">All {{ kind.title|lower }}s</a>
     </div>
   </div>
 

@@ -14,18 +14,18 @@
 
 <ol class="mb-4 flex flex-wrap items-stretch gap-2 text-sm">
   {% for step in document.timeline %}
-    <li class="flex-1 min-w-48 rounded border px-3 py-2
+    <li class="flex-1 min-w-48 rounded-sharp border px-3 py-2
                {% if step.kind == 'cancelled' %}
-                 border-cancelled/40 bg-cancelled/5
+                 border-alarm/40 bg-alarm/5
                {% elif step.kind == 'posted' and step.is_done %}
-                 border-posted/40 bg-posted/5
+                 border-signal/40 bg-signal/5
                {% elif step.is_done %}
-                 border-gray-300
+                 border-rule
                {% else %}
-                 border-dashed border-gray-300 text-gray-400
+                 border-dashed border-rule text-muted
                {% endif %}">
       <div class="text-xs font-semibold uppercase tracking-wide
-                  {% if step.kind == 'cancelled' %}text-cancelled{% elif not step.is_done %}text-gray-400{% else %}text-gray-600{% endif %}">
+                  {% if step.kind == 'cancelled' %}text-alarm{% elif not step.is_done %}text-muted{% else %}text-muted{% endif %}">
         {{ step.label }}
       </div>
 
@@ -36,19 +36,19 @@
       {% endif %}
 
       {% if step.at %}
-        <div class="text-xs {% if step.is_done %}text-gray-600{% else %}text-gray-400{% endif %}">
+        <div class="text-xs {% if step.is_done %}text-muted{% else %}text-muted{% endif %}">
           {{ step.at|date:"d M Y, H:i" }}
         </div>
       {% elif not step.document %}
-        <div class="text-xs text-gray-400">not yet</div>
+        <div class="text-xs text-muted">not yet</div>
       {% endif %}
 
       {% if step.by %}
-        <div class="text-xs text-gray-500">by {{ step.by.get_username }}</div>
+        <div class="text-xs text-muted">by {{ step.by.get_username }}</div>
       {% endif %}
 
       {% if step.note %}
-        <div class="mt-0.5 text-xs italic text-gray-600">{{ step.note }}</div>
+        <div class="mt-0.5 text-xs italic text-muted">{{ step.note }}</div>
       {% endif %}
     </li>
   {% endfor %}

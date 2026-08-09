@@ -228,6 +228,11 @@ unwind. If a requirement seems to need one of these rules broken, stop and ask
   means a broken page in the office.
 - All CSS, JS and fonts are **vendored into `static/src` and committed compiled
   into `static/dist`**. `static/dist` is deliberately **not** git-ignored.
+- Fonts are self-hosted from `static/dist/fonts` and `@font-face`d inside
+  `app.css`. The `src:` paths there are relative to the **compiled output**, not
+  to the source file — `url("fonts/x.woff2")`, because Tailwind copies them
+  through verbatim and the output is served as `/static/app.css`. Getting this
+  wrong 404s silently into a system fallback.
 - No `<link>` or `<script>` pointing at an external host. No `@import url(...)`
   to a font service. No `pip install` at runtime.
 - Adding a JS library means downloading it, committing it under
@@ -423,6 +428,7 @@ Two invariants the tests fail the build over:
 | Lint / format | `make lint` / `make fmt` |
 | Migrations | `make makemigrations` then `make migrate` |
 | Rebuild CSS | `make css` (then **commit `static/dist`**) |
+| Rebuild CSS without Docker | `make css-mac` — same Tailwind binary, run on the host |
 | Prod readiness check | `make check` |
 
 ## Before you finish any task
